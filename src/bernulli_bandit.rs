@@ -1,6 +1,8 @@
 use rand::distributions::{ Bernoulli, Distribution };
 use rand::Rng;
 
+use crate::constants::IS_VERBOSE_MODE;
+
 fn generate_uniform_random_number() -> f64 {
     let mut rng = rand::thread_rng();
     rng.gen()
@@ -24,8 +26,6 @@ pub struct BernulliBandit {
 }
 
 impl BernulliBandit {
-    const IS_VERBOSE_MODE: bool = false;
-
     /// This method allows to create a new Bernulli Bandit object with custom
     /// proabability.
     pub fn new(probability: f64) -> Self {
@@ -34,7 +34,7 @@ impl BernulliBandit {
                 "Probability is expected to be in a range from 0 to 1, inclusive of both borders."
             );
         }
-        if Self::IS_VERBOSE_MODE {
+        if IS_VERBOSE_MODE {
             println!("# Creating Bernulli Bandit with probability: {probability} #");
         }
         BernulliBandit {

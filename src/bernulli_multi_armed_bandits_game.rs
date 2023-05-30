@@ -2,7 +2,12 @@
 
 use polars::prelude::*;
 
-use crate::bernulli_bandit::{ BernulliBandit, generate_random_number_in_range };
+use crate::{
+    bernulli_bandit::{ BernulliBandit, generate_random_number_in_range },
+    simulation_runner::SimulationRunner,
+};
+
+use crate::constants::{ IS_VERBOSE_MODE, NUM_OF_BANDITS, NUM_OF_TRIALS };
 
 /// This game represent's a solution to a simple the Multi-Armed bandit problem.
 /// Here we have a Reinforcement Learning agent faced with multiple arm bandits,
@@ -16,25 +21,23 @@ use crate::bernulli_bandit::{ BernulliBandit, generate_random_number_in_range };
 /// by learning the probabilities of each of winning when pressing each leaver.
 #[derive(PartialEq, Debug)]
 pub struct BernulliMultiArmedBanditsGame {
-    no_of_bandits: i32,
-    no_of_trials: i32,
+    no_of_bandits: u32,
+    no_of_trials: u32,
     bandits: Vec<BernulliBandit>,
     results: Option<Vec<(usize, f64)>>,
     df_results: Option<DataFrame>,
 }
 
 impl BernulliMultiArmedBanditsGame {
-    const IS_VERBOSE_MODE: bool = false;
-
     /// Initalize the game allowing to specify the number of multi-arm bandits
     /// and number of trials that you would like run.
     /// The bandits are created each with a random probability that is not known
     /// to the agent, but instead the agent is learning them over time.
-    pub fn new(no_of_bandits: i32, no_of_trials: i32) -> Self {
+    pub fn new() -> Self {
         BernulliMultiArmedBanditsGame {
-            no_of_bandits,
-            no_of_trials,
-            bandits: BernulliBandit::new_as_vector(no_of_bandits as usize),
+            no_of_bandits: NUM_OF_BANDITS,
+            no_of_trials: NUM_OF_TRIALS,
+            bandits: BernulliBandit::new_as_vector(NUM_OF_BANDITS as usize),
             results: None,
             df_results: None,
         }
@@ -54,9 +57,13 @@ impl BernulliMultiArmedBanditsGame {
         let mut results: Vec<(usize, f64)> = vec![(0, 0.0); self.no_of_trials as usize];
 
         for trial in 0..self.no_of_trials as usize {
-            let bandit_number = generate_random_number_in_range(0, self.no_of_bandits - 1) as usize;
+            let bandit_number = generate_random_number_in_range(
+                0,
+                (self.no_of_bandits - 1).try_into().unwrap()
+            ) as usize;
             results[trial] = (bandit_number, self.bandits[bandit_number].pull());
-            if Self::IS_VERBOSE_MODE {
+
+            if IS_VERBOSE_MODE {
                 println!(
                     "Trial={} \t Playing bandit {} \t Reward is {}",
                     trial,
@@ -136,36 +143,33 @@ impl BernulliMultiArmedBanditsGame {
 }
 
 /// Public function used from main to run Multi-Armed Bernulli Bandits Game.
-pub fn run_with(no_of_bandits: usize, no_of_trials: i32) {
-    let mut game = BernulliMultiArmedBanditsGame::new(no_of_bandits as i32, no_of_trials);
-    game.run_game();
+pub fn run() {
+    let mut runner = SimulationRunner::new_bernulli_bandit();
+    runner.game.run_game();
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    const NO_OF_BANDITS: i32 = 10;
-    const NO_OF_TRIALS: i32 = 100_000;
-
     #[test]
     fn test_creation_of_game() {
-        let game = BernulliMultiArmedBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+        let game = BernulliMultiArmedBanditsGame::new();
 
-        assert_eq!(game.no_of_bandits, NO_OF_BANDITS);
-        assert_eq!(game.no_of_trials, NO_OF_TRIALS);
+        assert_eq!(game.no_of_bandits, NUM_OF_BANDITS);
+        assert_eq!(game.no_of_trials, NUM_OF_TRIALS);
         assert_eq!(game.bandits.is_empty(), false);
         assert_eq!(game.bandits.len(), 10);
     }
 
     #[test]
     fn test_getting_actual_probabilities() {
-        let game = BernulliMultiArmedBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+        let game = BernulliMultiArmedBanditsGame::new();
 
         let probabilities = game._get_actual_probabilities();
 
         assert_eq!(probabilities.is_empty(), false);
-        assert_eq!(probabilities.len(), NO_OF_BANDITS as usize);
+        assert_eq!(probabilities.len(), NUM_OF_BANDITS as usize);
 
         for &probability in &probabilities {
             assert!(probability >= 0.0);
@@ -175,21 +179,21 @@ mod test {
 
     #[test]
     fn test_running_game_stohastically() {
-        let mut game = BernulliMultiArmedBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+        let mut game = BernulliMultiArmedBanditsGame::new();
 
         game.run_choose_random_action_all_the_time();
 
         assert!(game.results.is_some(), "Should populate results vector");
         assert_eq!(
             game.results.unwrap().len(),
-            NO_OF_TRIALS as usize,
+            NUM_OF_TRIALS as usize,
             "There is a result for each trial."
         );
     }
 
     #[test]
     fn test_calculate_statistics_when_no_results() {
-        let mut game = BernulliMultiArmedBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+        let mut game = BernulliMultiArmedBanditsGame::new();
 
         assert!(game.results.is_none());
         assert!(game.df_results.is_none());
@@ -199,14 +203,14 @@ mod test {
         assert!(game.results.is_some(), "When results don't exist they are populated.");
         assert_eq!(
             game.results.unwrap().len(),
-            NO_OF_TRIALS as usize,
+            NUM_OF_TRIALS as usize,
             "Each trial has result saved."
         );
         assert!(game.df_results.is_some(), "Dataframe with results is populated.");
         assert_eq!(game.df_results.as_ref().unwrap().is_empty(), false, "Dataframe has data.");
         assert_eq!(
             game.df_results.unwrap().shape().0,
-            NO_OF_BANDITS as usize,
+            NUM_OF_BANDITS as usize,
             "Row in the dataframe exist for each representing each bandit."
         );
     }
