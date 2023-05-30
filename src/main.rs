@@ -1,8 +1,8 @@
 mod bernulli_bandit;
 mod bandits_game;
 
-use crate::bandits_game::BanditsGame;
-
 fn main() {
-    bandits_game::run();
+    let no_of_bandits: usize = 10;
+    let no_of_trials = 100_000;
+    bandits_game::run_with(no_of_bandits, no_of_trials);
 }

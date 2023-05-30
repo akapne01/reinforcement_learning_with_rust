@@ -13,6 +13,10 @@ pub fn generate_random_number_in_range(min: i32, max: i32) -> i32 {
     rand::thread_rng().gen_range(min..=max)
 }
 
+/// BernulliBandit object represents a leaver in the slot machine.
+/// It has a certain proability of winning or loosing that is constant
+/// and does not change over time.
+/// This probability is not known beforehand.
 #[derive(PartialEq, Debug)]
 pub struct BernulliBandit {
     probability: f64,
@@ -20,9 +24,16 @@ pub struct BernulliBandit {
 }
 
 impl BernulliBandit {
-    const IS_VERBOSE_MODE: bool = true;
+    const IS_VERBOSE_MODE: bool = false;
 
+    /// This method allows to create a new Bernulli Bandit object with custom
+    /// proabability.
     pub fn new(probability: f64) -> Self {
+        if probability < 0.0 || probability > 1.0 {
+            panic!(
+                "Probability is expected to be in a range from 0 to 1, inclusive of both borders."
+            );
+        }
         if Self::IS_VERBOSE_MODE {
             println!("# Creating Bernulli Bandit with probability: {probability} #");
         }
@@ -32,6 +43,8 @@ impl BernulliBandit {
         }
     }
 
+    /// This method allows to create a new Bernulli Bandit object with
+    /// random probability.
     pub fn new_random() -> Self {
         let probability = generate_uniform_random_number();
         BernulliBandit::new(probability)
@@ -45,6 +58,9 @@ impl BernulliBandit {
         bandits
     }
 
+    /// Each pull represents pulling a leaver similar like in the slot machine.
+    /// the pull returns reward that is of Bernulli distribution, meaning that
+    /// 1.0 represent win, and 0.0 represent loss.
     pub fn pull(&self) -> f64 {
         let result = self.distribution.sample(&mut rand::thread_rng());
         match result {
@@ -53,6 +69,10 @@ impl BernulliBandit {
         }
     }
 
+    /// Added ONLY for purposes of collecting statistics about the game.
+    /// Since proability is set randomly, we need a way to obtain how the
+    /// actual probability was so it can be compared to what the agent
+    /// has learned.
     pub fn get_probablity(&self) -> f64 {
         self.probability
     }
@@ -95,6 +115,22 @@ mod test {
         let k_bandit = BernulliBandit::new(0.5);
 
         assert_eq!(k_bandit.probability, 0.5);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Probability is expected to be in a range from 0 to 1, inclusive of both borders."
+    )]
+    fn test_creation_when_proabability_more_than_expected_range() {
+        BernulliBandit::new(34.0);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Probability is expected to be in a range from 0 to 1, inclusive of both borders."
+    )]
+    fn test_creation_when_proabability_less_than_expected_range() {
+        BernulliBandit::new(-2.2);
     }
 
     #[test]
@@ -141,6 +177,14 @@ mod test {
             expected_range.contains(&failure_counter),
             "When 1000 trials and p=0.5, then false values expected to be in range 450..550"
         );
+    }
+
+    #[test]
+    fn test_creation_of_new_random_armed_bandit() {
+        let bandit = BernulliBandit::new_random();
+
+        assert!(bandit.probability >= 0.0);
+        assert!(bandit.probability <= 1.0);
     }
 
     #[test]

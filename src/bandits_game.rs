@@ -1,30 +1,56 @@
 /// Python version: https://www.dominodatalab.com/blog/k-armed-bandit-problem
 
+use polars::prelude::*;
+
 use crate::bernulli_bandit::{ BernulliBandit, generate_random_number_in_range };
 
+/// This game represent's a solution to a simple the Multi-Armed bandit problem.
+/// Here we have a Reinforcement Learning agent faced with multiple arm bandits,
+/// it can be tought as agent having multiple slot machines in from of him.
+/// At each step, agent chooses which leaver to pull.
+/// After pulling a leaver, agent recieves a reward that is either: 0.0 or 1.0.
+/// 0.0 represents loss, and 1.0 represents win.
+/// Agent performs set number of trials and is faced with set number of leavers
+/// to pull.
+/// Agnet's objective is to maximize the total reward that it recieves over time
+/// by learning the probabilities of each of winning when pressing each leaver.
 #[derive(PartialEq, Debug)]
-pub struct BanditsGame {
+pub struct BernulliBanditsGame {
     no_of_bandits: i32,
     no_of_trials: i32,
     bandits: Vec<BernulliBandit>,
     results: Option<Vec<(usize, f64)>>,
+    df_results: Option<DataFrame>,
 }
 
-impl BanditsGame {
+impl BernulliBanditsGame {
     const IS_VERBOSE_MODE: bool = false;
 
     /// Initalize the game allowing to specify the number of multi-arm bandits
     /// and number of trials that you would like run.
+    /// The bandits are created each with a random probability that is not known
+    /// to the agent, but instead the agent is learning them over time.
     pub fn new(no_of_bandits: i32, no_of_trials: i32) -> Self {
-        BanditsGame {
+        BernulliBanditsGame {
             no_of_bandits,
             no_of_trials,
             bandits: BernulliBandit::new_as_vector(no_of_bandits as usize),
             results: None,
+            df_results: None,
         }
     }
 
-    pub fn run_stochastic(&mut self) {
+    /// Runs game, populates statistics and prints them in console
+    pub fn run_game(&mut self) {
+        self.run_stochastic();
+        self.calculate_statistics();
+        self.print_statistics()
+    }
+
+    /// Runs all trials and records results.
+    /// This function populates results vector that contains the bandit number selecte dand reward
+    /// recieved on that trial.
+    fn run_stochastic(&mut self) {
         let mut results: Vec<(usize, f64)> = vec![(0, 0.0); self.no_of_trials as usize];
 
         for trial in 0..self.no_of_trials as usize {
@@ -42,7 +68,11 @@ impl BanditsGame {
         self.results = Some(results);
     }
 
-    pub fn get_actual_probabilities(&self) -> Vec<f64> {
+    /// Helper method that allows to obtain the actula probabilities that each arm bandit had
+    /// for statistical purposes only.
+    /// The mean rewards coverge over time and with many trials to the actual proababilities reflecting
+    /// that playing agent has learned them.
+    fn _get_actual_probabilities(&self) -> Vec<f64> {
         let mut probabilities = vec![0.0; self.no_of_bandits as usize];
         for (index, bandit) in self.bandits.iter().enumerate() {
             probabilities[index] = bandit.get_probablity();
@@ -50,56 +80,134 @@ impl BanditsGame {
         probabilities
     }
 
-    pub fn print_statistics(&self) {
+    /// This method writes results in the dataframe and adds additional calculations.
+    /// If results vector is not present, then will run to create it.
+    fn calculate_statistics(&mut self) {
         if self.results.is_none() {
-            println!("Results not available! Generate results first!!!");
-            return;
+            self.run_stochastic();
         }
+        std::env::set_var("POLARS_FMT_MAX_COLS", "12");
+        std::env::set_var("POLARS_FMT_MAX_ROWS", "12");
+        let probabilities = self._get_actual_probabilities();
+        let mut bandits = vec![0; self.no_of_bandits as usize];
         let mut bandits_frequency = vec![0; self.no_of_bandits as usize];
         let mut bandits_rewards = vec![0.0; self.no_of_bandits as usize];
         for &(bandit, reward) in self.results.as_ref().unwrap().into_iter() {
+            bandits[bandit] = bandit as i32;
             bandits_frequency[bandit] += 1;
             bandits_rewards[bandit] += reward;
         }
-        let probabilities = self.get_actual_probabilities();
-        println!("### Printing Bandit statistics! ###");
-        for i in 0..self.no_of_bandits as usize {
-            let frequency = bandits_frequency[i];
-            let total_reward = bandits_rewards[i];
-            let probability = probabilities[i];
-            let mean_reward = total_reward / (frequency as f64);
-            println!(
-                "Bandit: {} \t Freq: {} \t Total Rwrd: {} \t Mean Rwrd: {:.4} \t p: {:.4} \t diff: {:.4}",
-                i,
-                frequency,
-                total_reward,
-                mean_reward,
-                probability,
-                probability - mean_reward
-            );
+
+        let mut dfr = DataFrame::new(
+            vec![
+                Series::new("bandit", &bandits),
+                Series::new("actual_probability", &probabilities),
+                Series::new("frequency", &bandits_frequency),
+                Series::new("total_reward", &bandits_rewards)
+            ]
+        ).expect("Failed to create DataFrame");
+
+        dfr = dfr
+            .lazy()
+            .with_column((col("total_reward") / col("frequency")).alias("mean_reward"))
+            .collect()
+            .unwrap();
+
+        dfr = dfr
+            .lazy()
+            .with_column((col("actual_probability") / col("frequency")).alias("diff"))
+            .collect()
+            .unwrap();
+
+        dfr = dfr.sort(["total_reward"], true).expect("Couldn't sort the dataframe");
+        self.df_results = Some(dfr);
+    }
+
+    /// This method prints in console polars dataframe that holds calculated statistics.
+    /// If statistics is not populated, then will calculate them and generate dataframe.
+    fn print_statistics(&mut self) {
+        if self.df_results.is_none() {
+            self.calculate_statistics();
         }
+        println!("## Multi Armed Bandit Statistics ##");
+        let df = self.df_results.as_ref().unwrap();
+        println!("{:?}", df);
     }
 }
 
-pub fn run() {
-    let no_of_bandits: usize = 10;
-    let no_of_trials = 100_000;
-    let mut game = BanditsGame::new(no_of_bandits as i32, no_of_trials);
-    game.run_stochastic();
-    game.print_statistics();
+/// Public function used from main to run Multi-Armed Bernulli Bandits Game.
+pub fn run_with(no_of_bandits: usize, no_of_trials: i32) {
+    let mut game = BernulliBanditsGame::new(no_of_bandits as i32, no_of_trials);
+    game.run_game();
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
+    const NO_OF_BANDITS: i32 = 10;
+    const NO_OF_TRIALS: i32 = 100_000;
+
     #[test]
     fn test_creation_of_game() {
-        let game = BanditsGame::new(10, 1000);
+        let game = BernulliBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
 
-        assert_eq!(game.no_of_bandits, 10);
-        assert_eq!(game.no_of_trials, 1000);
+        assert_eq!(game.no_of_bandits, NO_OF_BANDITS);
+        assert_eq!(game.no_of_trials, NO_OF_TRIALS);
         assert_eq!(game.bandits.is_empty(), false);
         assert_eq!(game.bandits.len(), 10);
+    }
+
+    #[test]
+    fn test_getting_actual_probabilities() {
+        let game = BernulliBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+
+        let probabilities = game._get_actual_probabilities();
+
+        assert_eq!(probabilities.is_empty(), false);
+        assert_eq!(probabilities.len(), NO_OF_BANDITS as usize);
+
+        for &probability in &probabilities {
+            assert!(probability >= 0.0);
+            assert!(probability <= 1.0, "Proability is between 0 and 1");
+        }
+    }
+
+    #[test]
+    fn test_running_game_stohastically() {
+        let mut game = BernulliBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+
+        game.run_stochastic();
+
+        assert!(game.results.is_some(), "Should populate results vector");
+        assert_eq!(
+            game.results.unwrap().len(),
+            NO_OF_TRIALS as usize,
+            "There is a result for each trial."
+        );
+    }
+
+    #[test]
+    fn test_calculate_statistics_when_no_results() {
+        let mut game = BernulliBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+
+        assert!(game.results.is_none());
+        assert!(game.df_results.is_none());
+
+        game.calculate_statistics();
+
+        assert!(game.results.is_some(), "When results don't exist they are populated.");
+        assert_eq!(
+            game.results.unwrap().len(),
+            NO_OF_TRIALS as usize,
+            "Each trial has result saved."
+        );
+        assert!(game.df_results.is_some(), "Dataframe with results is populated.");
+        assert_eq!(game.df_results.as_ref().unwrap().is_empty(), false, "Dataframe has data.");
+        assert_eq!(
+            game.df_results.unwrap().shape().0,
+            NO_OF_BANDITS as usize,
+            "Row in the dataframe exist for each representing each bandit."
+        );
     }
 }
