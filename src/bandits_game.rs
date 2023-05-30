@@ -1,3 +1,5 @@
+/// Python version: https://www.dominodatalab.com/blog/k-armed-bandit-problem
+
 use crate::bernulli_bandit::{ BernulliBandit, generate_random_number_in_range };
 
 #[derive(PartialEq, Debug)]
@@ -9,7 +11,7 @@ pub struct BanditsGame {
 }
 
 impl BanditsGame {
-    const IS_VERBOSE_MODE: bool = true;
+    const IS_VERBOSE_MODE: bool = false;
 
     /// Initalize the game allowing to specify the number of multi-arm bandits
     /// and number of trials that you would like run.
@@ -67,15 +69,24 @@ impl BanditsGame {
             let probability = probabilities[i];
             let mean_reward = total_reward / (frequency as f64);
             println!(
-                "Bandit: {} \t Freq: {} \t Total Rwrd: {} \t Mean Rwrd: {} \t p: {}",
+                "Bandit: {} \t Freq: {} \t Total Rwrd: {} \t Mean Rwrd: {:.4} \t p: {:.4} \t diff: {:.4}",
                 i,
                 frequency,
                 total_reward,
                 mean_reward,
-                probability
+                probability,
+                probability - mean_reward
             );
         }
     }
+}
+
+pub fn run() {
+    let no_of_bandits: usize = 10;
+    let no_of_trials = 100_000;
+    let mut game = BanditsGame::new(no_of_bandits as i32, no_of_trials);
+    game.run_stochastic();
+    game.print_statistics();
 }
 
 #[cfg(test)]
