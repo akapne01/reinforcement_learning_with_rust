@@ -15,7 +15,7 @@ use crate::bernulli_bandit::{ BernulliBandit, generate_random_number_in_range };
 /// Agnet's objective is to maximize the total reward that it recieves over time
 /// by learning the probabilities of each of winning when pressing each leaver.
 #[derive(PartialEq, Debug)]
-pub struct BernulliBanditsGame {
+pub struct BernulliMultiArmedBanditsGame {
     no_of_bandits: i32,
     no_of_trials: i32,
     bandits: Vec<BernulliBandit>,
@@ -23,7 +23,7 @@ pub struct BernulliBanditsGame {
     df_results: Option<DataFrame>,
 }
 
-impl BernulliBanditsGame {
+impl BernulliMultiArmedBanditsGame {
     const IS_VERBOSE_MODE: bool = false;
 
     /// Initalize the game allowing to specify the number of multi-arm bandits
@@ -31,7 +31,7 @@ impl BernulliBanditsGame {
     /// The bandits are created each with a random probability that is not known
     /// to the agent, but instead the agent is learning them over time.
     pub fn new(no_of_bandits: i32, no_of_trials: i32) -> Self {
-        BernulliBanditsGame {
+        BernulliMultiArmedBanditsGame {
             no_of_bandits,
             no_of_trials,
             bandits: BernulliBandit::new_as_vector(no_of_bandits as usize),
@@ -42,7 +42,7 @@ impl BernulliBanditsGame {
 
     /// Runs game, populates statistics and prints them in console
     pub fn run_game(&mut self) {
-        self.run_stochastic();
+        self.run_choose_random_action_all_the_time();
         self.calculate_statistics();
         self.print_statistics()
     }
@@ -50,7 +50,7 @@ impl BernulliBanditsGame {
     /// Runs all trials and records results.
     /// This function populates results vector that contains the bandit number selecte dand reward
     /// recieved on that trial.
-    fn run_stochastic(&mut self) {
+    fn run_choose_random_action_all_the_time(&mut self) {
         let mut results: Vec<(usize, f64)> = vec![(0, 0.0); self.no_of_trials as usize];
 
         for trial in 0..self.no_of_trials as usize {
@@ -84,7 +84,7 @@ impl BernulliBanditsGame {
     /// If results vector is not present, then will run to create it.
     fn calculate_statistics(&mut self) {
         if self.results.is_none() {
-            self.run_stochastic();
+            self.run_choose_random_action_all_the_time();
         }
         std::env::set_var("POLARS_FMT_MAX_COLS", "12");
         std::env::set_var("POLARS_FMT_MAX_ROWS", "12");
@@ -137,7 +137,7 @@ impl BernulliBanditsGame {
 
 /// Public function used from main to run Multi-Armed Bernulli Bandits Game.
 pub fn run_with(no_of_bandits: usize, no_of_trials: i32) {
-    let mut game = BernulliBanditsGame::new(no_of_bandits as i32, no_of_trials);
+    let mut game = BernulliMultiArmedBanditsGame::new(no_of_bandits as i32, no_of_trials);
     game.run_game();
 }
 
@@ -150,7 +150,7 @@ mod test {
 
     #[test]
     fn test_creation_of_game() {
-        let game = BernulliBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+        let game = BernulliMultiArmedBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
 
         assert_eq!(game.no_of_bandits, NO_OF_BANDITS);
         assert_eq!(game.no_of_trials, NO_OF_TRIALS);
@@ -160,7 +160,7 @@ mod test {
 
     #[test]
     fn test_getting_actual_probabilities() {
-        let game = BernulliBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+        let game = BernulliMultiArmedBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
 
         let probabilities = game._get_actual_probabilities();
 
@@ -175,9 +175,9 @@ mod test {
 
     #[test]
     fn test_running_game_stohastically() {
-        let mut game = BernulliBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+        let mut game = BernulliMultiArmedBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
 
-        game.run_stochastic();
+        game.run_choose_random_action_all_the_time();
 
         assert!(game.results.is_some(), "Should populate results vector");
         assert_eq!(
@@ -189,7 +189,7 @@ mod test {
 
     #[test]
     fn test_calculate_statistics_when_no_results() {
-        let mut game = BernulliBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
+        let mut game = BernulliMultiArmedBanditsGame::new(NO_OF_BANDITS, NO_OF_TRIALS);
 
         assert!(game.results.is_none());
         assert!(game.df_results.is_none());
