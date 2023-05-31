@@ -1,5 +1,3 @@
-/// Python version: https://www.dominodatalab.com/blog/k-armed-bandit-problem
-
 use polars::prelude::*;
 
 use crate::{
