@@ -42,12 +42,14 @@ impl SimulationRunner {
         let mut dataframes: Vec<DataFrame> = vec![];
         let mut resulting_actions_vector: Vec<Vec<usize>> = vec![];
         let mut resulting_rewards_vector: Vec<Vec<f64>> = vec![];
+        let mut average_rewards: Vec<f64> = vec![];
         for game_run in 0..self.num_of_games as usize {
             if IS_VERBOSE_MODE {
                 println!("\n# Game run: {} #", game_run);
             }
             let mut game = BernulliMultiArmedBanditsGame::new();
             game.run_game();
+            average_rewards.insert(game_run, game.calculate_average_reward());
             dataframes.insert(game_run, game.df_results.unwrap());
             resulting_actions_vector.insert(game_run, game.resulting_actions.unwrap());
             resulting_rewards_vector.insert(game_run, game.resulting_rewards.unwrap());
@@ -57,6 +59,14 @@ impl SimulationRunner {
         self.resulting_actions_vector = Some(resulting_actions_vector);
         self.resulting_rewards_vector = Some(resulting_rewards_vector);
         self.print_df_results();
+        println!("Average rewards per game is: {:?}", average_rewards);
+        let total_rewards: f64 = average_rewards.iter().sum();
+        let mean_reward: f64 = total_rewards / (self.num_of_games as f64);
+        // We expect the average mean reward to be close to 0.5 in case all random actions
+        // have been selected in all the steps. We also have a random probabilities for each
+        // of the armed bandit. 
+        println!("Average Mean Reward: {:?}", mean_reward);
+
     }
 }
 

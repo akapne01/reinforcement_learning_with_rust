@@ -136,6 +136,14 @@ impl BernulliMultiArmedBanditsGame {
         dfr = dfr.sort(["total_reward"], true).expect("Couldn't sort the dataframe");
         self.df_results = Some(dfr);
     }
+
+    pub fn calculate_average_reward(&mut self) -> f64 {
+        if self.resulting_rewards.is_none() {
+            self.run_choose_random_action_all_the_time();
+        }
+        let total: f64 = self.resulting_rewards.as_ref().unwrap().iter().sum();
+        total / (self.no_of_trials as f64)
+    }
 }
 
 /// Public function used from main to run Multi-Armed Bernulli Bandits Game.
