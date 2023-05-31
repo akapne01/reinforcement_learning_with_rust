@@ -2,7 +2,7 @@ use polars::prelude::*;
 
 use crate::{ bernulli_multi_armed_bandits_game::BernulliMultiArmedBanditsGame };
 
-use crate::constants::{ NUM_OF_GAMES_TO_RUN, IS_VERBOSE_MODE };
+use crate::constants::{ NUM_OF_GAMES_TO_PLAY, IS_VERBOSE_MODE, EPSILON, ALPHA };
 
 pub struct SimulationRunner {
     num_of_games: i32,
@@ -14,7 +14,7 @@ pub struct SimulationRunner {
 impl SimulationRunner {
     pub fn new() -> Self {
         SimulationRunner {
-            num_of_games: NUM_OF_GAMES_TO_RUN,
+            num_of_games: NUM_OF_GAMES_TO_PLAY,
             df_vector: None,
             resulting_actions_vector: None,
             resulting_rewards_vector: None,
@@ -29,6 +29,7 @@ impl SimulationRunner {
                 for (game_number, df) in list.into_iter().enumerate() {
                     println!("### Results Dataframe for trial : {} ###", game_number);
                     println!("{:?} \n", df);
+                    println!("Epsilon: {} \t Alpha: {}", EPSILON, ALPHA);
                 }
             }
             None => {
@@ -64,9 +65,8 @@ impl SimulationRunner {
         let mean_reward: f64 = total_rewards / (self.num_of_games as f64);
         // We expect the average mean reward to be close to 0.5 in case all random actions
         // have been selected in all the steps. We also have a random probabilities for each
-        // of the armed bandit. 
+        // of the armed bandit.
         println!("Average Mean Reward: {:?}", mean_reward);
-
     }
 }
 

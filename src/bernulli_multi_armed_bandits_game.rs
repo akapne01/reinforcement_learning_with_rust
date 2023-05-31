@@ -3,9 +3,20 @@
 use polars::prelude::*;
 
 use crate::{
-    bernulli_bandit::{ BernulliBandit, generate_random_number_in_range },
+    bernulli_bandit::{
+        BernulliBandit,
+        generate_uniform_random_number,
+        generate_random_number_in_range,
+    },
     simulation_runner::SimulationRunner,
-    constants::{ PRINT_EACH_STEP, NUM_OF_BANDITS, NUM_OF_TRIALS },
+    constants::{
+        PRINT_EACH_STEP,
+        NUM_OF_BANDITS,
+        NUM_OF_TURNS_IN_A_GAME,
+        EPSILON,
+        ALPHA,
+        IS_VERBOSE_MODE,
+    },
 };
 
 /// This game represent's a solution to a simple the Multi-Armed bandit problem.
@@ -20,12 +31,38 @@ use crate::{
 /// by learning the probabilities of each of winning when pressing each leaver.
 #[derive(PartialEq, Debug)]
 pub struct BernulliMultiArmedBanditsGame {
-    no_of_bandits: u32,
-    no_of_trials: u32,
+    /// Number of slot machines to play in one game.
+    num_of_bandits: usize,
+    /// Represents the number of turns taken in each game.
+    num_of_turns: usize,
+    /// This vector holds the actual bandits that are genearted each
+    /// with the random probability that agent does not know, but is
+    /// attempting to learn
     bandits: Vec<BernulliBandit>,
+    /// Records action taken on each turn. When none, means that the
+    /// game hasn't been played yet. Index represents the turn in the
+    /// game.
     pub resulting_actions: Option<Vec<usize>>,
+    /// Records rewards that resuled from taking each action. When none,
+    /// the game hasn't been played. Index represents the turn in the game.
     pub resulting_rewards: Option<Vec<f64>>,
+    /// Summaraizes the results in a dataframe for each armed bandit.
+    /// Records total reward recieved in each game, and how many times each
+    /// of the slots where selected to be pulled.
+    /// For comparison purposes also keeps a record of the actual probability
+    /// of winning that was set for each of the slot machines to win.
     pub df_results: Option<DataFrame>,
+    /// This vector represents the long term knowledge that RL agent has learned.
+    /// It corresponds to the value function. Index of this vector represents the
+    /// number of the armed bandit. Value recorded in the vector is an estimation
+    /// of the probability of winning. The values recorded in this vector represents
+    /// the knowledge that RL agent has.
+    learned_probabilities: Vec<f64>,
+    /// Should be in range: 0 <= epsilon <= 1
+    /// Represents the proabability with which to take exploratory action (random action)
+    /// If epsilon = 0, greedy action is always taken. If epsilon = 1, random action is
+    /// always taken.
+    epsilon: f64,
 }
 
 impl BernulliMultiArmedBanditsGame {
@@ -35,41 +72,98 @@ impl BernulliMultiArmedBanditsGame {
     /// to the agent, but instead the agent is learning them over time.
     pub fn new() -> Self {
         BernulliMultiArmedBanditsGame {
-            no_of_bandits: NUM_OF_BANDITS,
-            no_of_trials: NUM_OF_TRIALS,
+            num_of_bandits: NUM_OF_BANDITS,
+            num_of_turns: NUM_OF_TURNS_IN_A_GAME,
             bandits: BernulliBandit::new_as_vector(NUM_OF_BANDITS as usize),
             resulting_actions: None,
             resulting_rewards: None,
             df_results: None,
+            learned_probabilities: vec![0.0; NUM_OF_BANDITS as usize],
+            epsilon: EPSILON,
         }
     }
 
     /// Runs game, populates statistics and prints them in console
     pub fn run_game(&mut self) {
-        self.run_choose_random_action_all_the_time();
+        self.run_and_record_resuts();
         self.calculate_statistics();
+    }
+
+    /// This action selection policy chooses a random action every single time
+    /// This is action policy that is always explorative as agent never exploits
+    /// the knowledge that it has learned.
+    pub fn policy_select_action_randomly(&self) -> usize {
+        let action = generate_random_number_in_range(0, self.num_of_bandits) as usize;
+        if PRINT_EACH_STEP {
+            println!("# Random Action selected :{} #", action);
+        }
+        action
+    }
+
+    /// If epsilon-greedy action policy is selected, this method updates the agent
+    /// estiamted Q values which in this case represent the proability of winning
+    /// for each of the armed bandit (slot machine).
+    /// new_estimate = old_estimate + step_size (target - old_estimate)
+    fn update_value_function(&mut self, action: usize, reward: f64) {
+        self.learned_probabilities[action] += ALPHA * (reward - self.learned_probabilities[action]);
+    }
+
+    /// Action selection policy: epsilon greedy.
+    /// Epsilon bounds: 0 <= epsilon <= 1.
+    /// This action selection policy balances the exporation and exploitation.
+    /// The actions are selected greedily with probability of (1 - epsilon).
+    /// When actions are selected greedily, the RL agent exploits what it has learned.
+    /// Actions are selected randomly with probability of epsilon. When actions are
+    /// selected randomly, agent explores the action space to gain a new knowledge
+    /// or refine the knowledge that it already has.
+    pub fn policy_select_epsilon_greedy_action(&self) -> usize {
+        let number = generate_uniform_random_number();
+        if number <= self.epsilon {
+            return self.policy_select_action_randomly();
+        }
+        let max_value = self.learned_probabilities
+            .iter()
+            .cloned()
+            .fold(std::f64::NEG_INFINITY, f64::max);
+        let max_indices: Vec<usize> = self.learned_probabilities
+            .iter()
+            .enumerate()
+            .filter(|(_, &value)| value == max_value)
+            .map(|(index, _)| index)
+            .collect();
+
+        if IS_VERBOSE_MODE {
+            println!("Max Q value: {}", max_value);
+            println!("Indices that correspond to this value: {:?}", max_indices);
+        }
+
+        let random_index = generate_random_number_in_range(0, max_indices.len());
+
+        if PRINT_EACH_STEP {
+            println!("# Greedy Action selected :{} #", max_indices[random_index]);
+        }
+        max_indices[random_index]
     }
 
     /// Runs all trials and records results.
     /// This function populates results vector that contains the bandit number selecte dand reward
     /// recieved on that trial.
-    fn run_choose_random_action_all_the_time(&mut self) {
+    fn run_and_record_resuts(&mut self) {
         let mut resulting_actions = vec![];
         let mut resulting_rewards = vec![];
 
-        for trial in 0..self.no_of_trials as usize {
-            let bandit_number = generate_random_number_in_range(
-                0,
-                (self.no_of_bandits - 1).try_into().unwrap()
-            ) as usize;
-            resulting_actions.insert(trial, bandit_number);
-            resulting_rewards.insert(trial, self.bandits[bandit_number].pull());
+        for trial in 0..self.num_of_turns as usize {
+            let action_to_take = self.policy_select_epsilon_greedy_action();
+            let reward = self.bandits[action_to_take].pull();
+            self.update_value_function(action_to_take, reward);
+            resulting_actions.insert(trial, action_to_take);
+            resulting_rewards.insert(trial, reward);
 
             if PRINT_EACH_STEP {
                 println!(
-                    "Trial={} \t Playing bandit {} \t Reward is {}",
+                    "Turn={} \t Playing bandit {} \t Reward is {}",
                     trial,
-                    bandit_number,
+                    action_to_take,
                     resulting_rewards[trial]
                 );
             }
@@ -83,7 +177,7 @@ impl BernulliMultiArmedBanditsGame {
     /// The mean rewards coverge over time and with many trials to the actual proababilities reflecting
     /// that playing agent has learned them.
     fn _get_actual_probabilities(&self) -> Vec<f64> {
-        let mut probabilities = vec![0.0; self.no_of_bandits as usize];
+        let mut probabilities = vec![0.0; self.num_of_bandits as usize];
         for (index, bandit) in self.bandits.iter().enumerate() {
             probabilities[index] = bandit.get_probablity();
         }
@@ -94,14 +188,14 @@ impl BernulliMultiArmedBanditsGame {
     /// If results vector is not present, then will run to create it.
     fn calculate_statistics(&mut self) {
         if self.resulting_actions.is_none() || self.resulting_rewards.is_none() {
-            self.run_choose_random_action_all_the_time();
+            self.run_and_record_resuts();
         }
         std::env::set_var("POLARS_FMT_MAX_COLS", "12");
         std::env::set_var("POLARS_FMT_MAX_ROWS", "12");
         let probabilities = self._get_actual_probabilities();
 
-        let mut bandits_frequency = vec![0; self.no_of_bandits as usize];
-        let mut bandits_rewards = vec![0.0; self.no_of_bandits as usize];
+        let mut bandits_frequency = vec![0; self.num_of_bandits as usize];
+        let mut bandits_rewards = vec![0.0; self.num_of_bandits as usize];
 
         for (&action, &reward) in self.resulting_actions
             .as_ref()
@@ -114,8 +208,9 @@ impl BernulliMultiArmedBanditsGame {
 
         let mut dfr = DataFrame::new(
             vec![
-                Series::new("bandit", Vec::from_iter(0..self.no_of_bandits)),
+                Series::new("bandit", Vec::from_iter(0..self.num_of_bandits as u32)),
                 Series::new("actual_probability", &probabilities),
+                Series::new("learned_probability", &self.learned_probabilities),
                 Series::new("frequency", &bandits_frequency),
                 Series::new("total_reward", &bandits_rewards)
             ]
@@ -139,10 +234,10 @@ impl BernulliMultiArmedBanditsGame {
 
     pub fn calculate_average_reward(&mut self) -> f64 {
         if self.resulting_rewards.is_none() {
-            self.run_choose_random_action_all_the_time();
+            self.run_and_record_resuts();
         }
         let total: f64 = self.resulting_rewards.as_ref().unwrap().iter().sum();
-        total / (self.no_of_trials as f64)
+        total / (self.num_of_turns as f64)
     }
 }
 
@@ -160,10 +255,10 @@ mod test {
     fn test_creation_of_game() {
         let game = BernulliMultiArmedBanditsGame::new();
 
-        assert_eq!(game.no_of_bandits, NUM_OF_BANDITS);
-        assert_eq!(game.no_of_trials, NUM_OF_TRIALS);
+        assert_eq!(game.num_of_bandits, NUM_OF_BANDITS);
+        assert_eq!(game.num_of_turns, NUM_OF_TURNS_IN_A_GAME);
         assert_eq!(game.bandits.is_empty(), false);
-        assert_eq!(game.bandits.len(), 10);
+        assert_eq!(game.bandits.len(), NUM_OF_BANDITS);
     }
 
     #[test]
@@ -185,12 +280,12 @@ mod test {
     fn test_running_game_stohastically() {
         let mut game = BernulliMultiArmedBanditsGame::new();
 
-        game.run_choose_random_action_all_the_time();
+        game.run_and_record_resuts();
 
         assert!(game.resulting_actions.is_some(), "Should populate resulting actions vector");
         assert_eq!(
             game.resulting_actions.unwrap().len(),
-            NUM_OF_TRIALS as usize,
+            NUM_OF_TURNS_IN_A_GAME as usize,
             "There is action recorded for each trial."
         );
         assert!(
@@ -199,7 +294,7 @@ mod test {
         );
         assert_eq!(
             game.resulting_rewards.unwrap().len(),
-            NUM_OF_TRIALS as usize,
+            NUM_OF_TURNS_IN_A_GAME as usize,
             "There is a reward recorded for each trial."
         );
     }
@@ -221,12 +316,12 @@ mod test {
         assert!(game.resulting_rewards.is_some(), "When rewards don't exist they are populated.");
         assert_eq!(
             game.resulting_actions.unwrap().len(),
-            NUM_OF_TRIALS as usize,
+            NUM_OF_TURNS_IN_A_GAME as usize,
             "For each trial action taken have been saved."
         );
         assert_eq!(
             game.resulting_rewards.unwrap().len(),
-            NUM_OF_TRIALS as usize,
+            NUM_OF_TURNS_IN_A_GAME as usize,
             "For each trial reward recieved has been saved."
         );
         assert!(game.df_results.is_some(), "Dataframe with results is populated.");
@@ -235,6 +330,118 @@ mod test {
             game.df_results.unwrap().shape().0,
             NUM_OF_BANDITS as usize,
             "Row in the dataframe exist for each representing each bandit."
+        );
+    }
+
+    #[test]
+    fn test_random_action_within_the_range_returned() {
+        let game = BernulliMultiArmedBanditsGame::new();
+        let turns = 10_000;
+        let expected_mean = (0.0 + (NUM_OF_BANDITS as f64) - 1.0) / 2.0;
+        let mut actions_taken = vec![];
+        for i in 0..turns {
+            // Always select random action
+            let action = game.policy_select_action_randomly();
+            assert!(action < (game.num_of_bandits as u32).try_into().unwrap());
+            actions_taken.insert(i, action);
+        }
+        let sum: usize = actions_taken.iter().sum();
+        let actual_mean = (sum as f64) / (turns as f64);
+
+        let expected_range = expected_mean - 0.5..expected_mean + 0.5;
+        assert!(
+            expected_range.contains(&actual_mean),
+            "We are working with probabilities and actual mean can vary a bit from expected mean so checking if it's in the range."
+        );
+    }
+
+    #[test]
+    fn test_update_value_function() {
+        let mut game = BernulliMultiArmedBanditsGame::new();
+        // Only update value function if exploratory action taken?
+        let mut expected_value_function = vec![0.0; NUM_OF_BANDITS as usize];
+
+        // 1st update
+        assert_eq!(game.learned_probabilities, expected_value_function);
+        game.update_value_function(0, 1.0);
+        expected_value_function[0] = ALPHA * (1.0 - 0.0);
+        assert_eq!(game.learned_probabilities, expected_value_function);
+
+        println!("After 1st turn the expected value function: {:?}", expected_value_function);
+        println!("After 1st turn the actual value function: {:?}", game.learned_probabilities);
+
+        // 2nd update
+        game.update_value_function(0, 1.0);
+        expected_value_function[0] += ALPHA * (1.0 - expected_value_function[0]);
+        assert_eq!(game.learned_probabilities, expected_value_function);
+
+        println!("After 3rd turn the expected value function: {:?}", expected_value_function);
+        println!("After 3rd turn the actual value function: {:?}", game.learned_probabilities);
+    }
+
+    #[test]
+    fn test_epsilon_greedy_within_the_range_returned() {
+        let turns = 100_000;
+
+        // Initalize game and set learned Q values to reflect the  actual probabilities for testing purposes
+        let mut game = BernulliMultiArmedBanditsGame::new();
+        game.learned_probabilities = game._get_actual_probabilities();
+
+        // Calculate actual Maximum probability
+        let max_value = game
+            ._get_actual_probabilities()
+            .iter()
+            .cloned()
+            .fold(std::f64::NEG_INFINITY, f64::max);
+
+        // Calculate to which index the maximum probability corresponds to
+        // This index denotes a action that should be taken the most often.
+        let max_indices: Vec<usize> = game
+            ._get_actual_probabilities()
+            .iter()
+            .enumerate()
+            .filter(|(_, &value)| value == max_value)
+            .map(|(index, _)| index)
+            .collect();
+
+        // Simulate playing the game and record actions that are returned to be
+        // taken on each turn.
+        let mut actions_taken = vec![];
+        for i in 0..turns {
+            let action = game.policy_select_epsilon_greedy_action();
+            assert!(
+                action < (game.num_of_bandits as u32).try_into().unwrap(),
+                "Don't expect action number to be bigger than number of slots"
+            );
+            actions_taken.insert(i, action);
+        }
+
+        // Calculate the expected min times greedy action was taken based on a given EPSILON.
+        let num_times_greedy_action_expected = (1.0 - EPSILON) * (turns as f64);
+
+        // Count how many times greedy action was actually taken.
+        let num_times_greedy_action_actually_taken = actions_taken
+            .iter()
+            .filter(|&value| *value == max_indices[0])
+            .count() as f64;
+
+        if IS_VERBOSE_MODE {
+            println!("\n# Actual max value: {}", max_value);
+            println!("# The actual max index: {:?}", max_indices);
+            println!("# Actual actions taken: {:?}", actions_taken);
+            println!(
+                "# Minimum Number of times greedy action expected: {:?}",
+                num_times_greedy_action_expected
+            );
+            println!(
+                "# Number of times greedy action actually taken: {:?}",
+                num_times_greedy_action_actually_taken
+            );
+        }
+
+        assert!(
+            num_times_greedy_action_actually_taken >= num_times_greedy_action_expected,
+            "Assert that greedy action was taken more or equal number of times than expected with probability (1 - epsilon)."
         );
     }
 }

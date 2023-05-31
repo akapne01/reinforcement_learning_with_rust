@@ -3,16 +3,18 @@ use rand::Rng;
 
 use crate::constants::IS_VERBOSE_MODE;
 
-fn generate_uniform_random_number() -> f64 {
+/// Generates random number in range: 0 <= n <= 1
+pub fn generate_uniform_random_number() -> f64 {
     let mut rng = rand::thread_rng();
     rng.gen()
 }
 
-pub fn generate_random_number_in_range(min: i32, max: i32) -> i32 {
+/// Generates random number in range: min <= n < max
+pub fn generate_random_number_in_range(min: usize, max: usize) -> usize {
     if min > max {
         panic!("Minimum number cannot be bigger than maximum number! Please check your values!");
     }
-    rand::thread_rng().gen_range(min..=max)
+    rand::thread_rng().gen_range(min..max)
 }
 
 /// BernulliBandit object represents a leaver in the slot machine.
@@ -95,18 +97,18 @@ mod test {
     #[should_panic(
         expected = "Minimum number cannot be bigger than maximum number! Please check your values!"
     )]
-    fn test_generate_random_number_when_max_smaller_than_min() {
+    fn test_generate_random_number_when_max_smaller_than_min_max_not_inclusive() {
         generate_random_number_in_range(100, 1);
     }
 
     #[test]
-    fn test_generate_random_number_in_range() {
+    fn test_generate_random_number_in_range_max_not_inclusive() {
         let min = 1;
         let max = 10;
         for _ in 0..1000 {
             let number = generate_random_number_in_range(min, max);
             assert!(number >= min);
-            assert!(number <= max);
+            assert!(number < max);
         }
     }
 
