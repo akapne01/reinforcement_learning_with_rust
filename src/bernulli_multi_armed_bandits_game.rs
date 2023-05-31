@@ -24,7 +24,7 @@ use crate::{
 /// 0.0 represents loss, and 1.0 represents win.
 /// Agent performs set number of trials and is faced with set number of leavers
 /// to pull.
-/// Agnet's objective is to maximize the total reward that it recieves over time
+/// Agent's objective is to maximize the total reward that it recieves over time
 /// by learning the probabilities of each of winning when pressing each leaver.
 #[derive(PartialEq, Debug)]
 pub struct BernulliMultiArmedBanditsGame {
