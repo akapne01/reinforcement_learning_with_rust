@@ -6,7 +6,6 @@ use crate::{
         generate_uniform_random_number,
         generate_random_number_in_range,
     },
-    simulation_runner::SimulationRunner,
     constants::{
         PRINT_EACH_STEP,
         NUM_OF_BANDITS,
@@ -37,6 +36,20 @@ pub struct BernulliMultiArmedBanditsGame {
     /// with the random probability that agent does not know, but is
     /// attempting to learn
     bandits: Vec<BernulliBandit>,
+    /// This vector represents the long term knowledge that RL agent has learned.
+    /// It corresponds to the value function. Index of this vector represents the
+    /// number of the armed bandit. Value recorded in the vector is an estimation
+    /// of the probability of winning. The values recorded in this vector represents
+    /// the knowledge that RL agent has.
+    q_values: Vec<f64>,
+    /// Should be in range: 0 <= epsilon <= 1
+    /// Represents the proabability with which to take exploratory action (random action)
+    /// If epsilon = 0, greedy action is always taken. If epsilon = 1, random action is
+    /// always taken.
+    epsilon: f64,
+    /// Stepsize parameter used when updating value function. Determines how much
+    /// weight to give to the rewards recieved from newly discovered actions.
+    alpha: f64,
     /// Records action taken on each turn. When none, means that the
     /// game hasn't been played yet. Index represents the turn in the
     /// game.
@@ -50,17 +63,6 @@ pub struct BernulliMultiArmedBanditsGame {
     /// For comparison purposes also keeps a record of the actual probability
     /// of winning that was set for each of the slot machines to win.
     pub df_results: Option<DataFrame>,
-    /// This vector represents the long term knowledge that RL agent has learned.
-    /// It corresponds to the value function. Index of this vector represents the
-    /// number of the armed bandit. Value recorded in the vector is an estimation
-    /// of the probability of winning. The values recorded in this vector represents
-    /// the knowledge that RL agent has.
-    learned_probabilities: Vec<f64>,
-    /// Should be in range: 0 <= epsilon <= 1
-    /// Represents the proabability with which to take exploratory action (random action)
-    /// If epsilon = 0, greedy action is always taken. If epsilon = 1, random action is
-    /// always taken.
-    epsilon: f64,
 }
 
 impl BernulliMultiArmedBanditsGame {
@@ -73,11 +75,12 @@ impl BernulliMultiArmedBanditsGame {
             num_of_bandits: NUM_OF_BANDITS,
             num_of_turns: NUM_OF_TURNS_IN_A_GAME,
             bandits: BernulliBandit::new_as_vector(NUM_OF_BANDITS as usize),
+            q_values: vec![0.0; NUM_OF_BANDITS as usize],
+            epsilon: EPSILON,
+            alpha: ALPHA,
             resulting_actions: None,
             resulting_rewards: None,
             df_results: None,
-            learned_probabilities: vec![0.0; NUM_OF_BANDITS as usize],
-            epsilon: EPSILON,
         }
     }
 
@@ -103,7 +106,7 @@ impl BernulliMultiArmedBanditsGame {
     /// for each of the armed bandit (slot machine).
     /// new_estimate = old_estimate + step_size (target - old_estimate)
     fn update_value_function(&mut self, action: usize, reward: f64) {
-        self.learned_probabilities[action] += ALPHA * (reward - self.learned_probabilities[action]);
+        self.q_values[action] += self.alpha * (reward - self.q_values[action]);
     }
 
     /// Action selection policy: epsilon greedy.
@@ -119,11 +122,8 @@ impl BernulliMultiArmedBanditsGame {
         if number <= self.epsilon {
             return self.policy_select_action_randomly();
         }
-        let max_value = self.learned_probabilities
-            .iter()
-            .cloned()
-            .fold(std::f64::NEG_INFINITY, f64::max);
-        let max_indices: Vec<usize> = self.learned_probabilities
+        let max_value = self.q_values.iter().cloned().fold(std::f64::NEG_INFINITY, f64::max);
+        let max_indices: Vec<usize> = self.q_values
             .iter()
             .enumerate()
             .filter(|(_, &value)| value == max_value)
@@ -208,7 +208,7 @@ impl BernulliMultiArmedBanditsGame {
             vec![
                 Series::new("bandit", Vec::from_iter(0..self.num_of_bandits as u32)),
                 Series::new("actual_probability", &probabilities),
-                Series::new("learned_probability", &self.learned_probabilities),
+                Series::new("learned_probability", &self.q_values),
                 Series::new("frequency", &bandits_frequency),
                 Series::new("total_reward", &bandits_rewards)
             ]
@@ -237,12 +237,6 @@ impl BernulliMultiArmedBanditsGame {
         let total: f64 = self.resulting_rewards.as_ref().unwrap().iter().sum();
         total / (self.num_of_turns as f64)
     }
-}
-
-/// Public function used from main to run Multi-Armed Bernulli Bandits Game.
-pub fn run() {
-    let mut runner = SimulationRunner::new();
-    runner.run_bernulli_multi_armed_simulation_game();
 }
 
 #[cfg(test)]
@@ -360,30 +354,30 @@ mod test {
         let mut expected_value_function = vec![0.0; NUM_OF_BANDITS as usize];
 
         // 1st update
-        assert_eq!(game.learned_probabilities, expected_value_function);
+        assert_eq!(game.q_values, expected_value_function);
         game.update_value_function(0, 1.0);
-        expected_value_function[0] = ALPHA * (1.0 - 0.0);
-        assert_eq!(game.learned_probabilities, expected_value_function);
+        expected_value_function[0] = game.alpha * (1.0 - 0.0);
+        assert_eq!(game.q_values, expected_value_function);
 
         println!("After 1st turn the expected value function: {:?}", expected_value_function);
-        println!("After 1st turn the actual value function: {:?}", game.learned_probabilities);
+        println!("After 1st turn the actual value function: {:?}", game.q_values);
 
         // 2nd update
         game.update_value_function(0, 1.0);
-        expected_value_function[0] += ALPHA * (1.0 - expected_value_function[0]);
-        assert_eq!(game.learned_probabilities, expected_value_function);
+        expected_value_function[0] += game.alpha * (1.0 - expected_value_function[0]);
+        assert_eq!(game.q_values, expected_value_function);
 
         println!("After 3rd turn the expected value function: {:?}", expected_value_function);
-        println!("After 3rd turn the actual value function: {:?}", game.learned_probabilities);
+        println!("After 3rd turn the actual value function: {:?}", game.q_values);
     }
 
     #[test]
-    fn test_epsilon_greedy_within_the_range_returned() {
+    fn test_epsilon_greedy_action_selection_policy() {
         let turns = 100_000;
 
         // Initalize game and set learned Q values to reflect the  actual probabilities for testing purposes
         let mut game = BernulliMultiArmedBanditsGame::new();
-        game.learned_probabilities = game._get_actual_probabilities();
+        game.q_values = game._get_actual_probabilities();
 
         // Calculate actual Maximum probability
         let max_value = game

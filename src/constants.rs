@@ -14,8 +14,8 @@ pub const NUM_OF_TURNS_IN_A_GAME: usize = 10_000;
 /// Epsilon is expected to be in bounds 0 <= EPSILON <= 1. When EPSILON = 0, agent always takes
 /// greedy action and explits the knowledge that it has. When EPSILON = 1, agent always takes
 /// exploratory action and learns more about action space based on rewards recieved.
-pub const EPSILON: f64 = 0.1;
+pub const EPSILON: f64 = 0.15;
 /// Is a stepsize parameter. This parameter really comes from mean average method where it represents
 /// 1/n where n is the number of turns taken in the game. It allows to adjust how much weight is given
 /// to each step.
-pub const ALPHA: f64 = 1.0 / (NUM_OF_TURNS_IN_A_GAME as f64);
+pub const ALPHA: f64 = 0.25;

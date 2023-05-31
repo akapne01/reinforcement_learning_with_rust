@@ -66,7 +66,12 @@ impl SimulationRunner {
         // We expect the average mean reward to be close to 0.5 in case all random actions
         // have been selected in all the steps. We also have a random probabilities for each
         // of the armed bandit.
-        println!("Average Mean Reward: {:?}", mean_reward);
+        println!(
+            "Epsilon: {} \t Alpha: {} \t Average Mean Reward: {:?}",
+            EPSILON,
+            ALPHA,
+            mean_reward
+        );
     }
 }
 
