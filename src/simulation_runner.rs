@@ -59,30 +59,28 @@ impl SimulationRunner {
     /// Runs Bernulli Multi Armed Bandit simulation
     pub fn run_bernulli_multi_armed_simulation_game(&mut self) {
         // Initalize data recorders
-        let mut dataframes: Vec<DataFrame> = vec![];
-        let mut resulting_actions_vector: Vec<Vec<usize>> = vec![];
-        let mut resulting_rewards_vector: Vec<Vec<f64>> = vec![];
-        let mut average_rewards: Vec<f64> = vec![];
-        let mut total_rewards = vec![];
+        let mut dataframes: Vec<DataFrame> = Vec::new();
+        let mut resulting_actions: Vec<Vec<usize>> = Vec::new();
+        let mut resulting_rewards: Vec<Vec<f64>> = Vec::new();
+        let mut average_rewards: Vec<f64> = Vec::new();
+        let mut total_rewards = Vec::new();
+
         // Run each game and record results for each game run.
         for game_run in 0..self.num_of_games as usize {
             if IS_VERBOSE_MODE {
                 println!("\n# Game run: {} #", game_run);
             }
 
-            self.games[game_run].run_game();
+            let game = &mut self.games[game_run];
 
-            average_rewards.insert(game_run, self.games[game_run].calculate_mean_reward());
-            dataframes.insert(game_run, self.games[game_run].df_results.clone().unwrap());
-            resulting_actions_vector.insert(
-                game_run,
-                self.games[game_run].resulting_actions.clone().unwrap()
-            );
-            resulting_rewards_vector.insert(
-                game_run,
-                self.games[game_run].resulting_rewards.clone().unwrap()
-            );
-            total_rewards.insert(game_run, self.games[game_run].calculate_total_reward());
+            game.run_game();
+
+            // Record results
+            average_rewards.push(game.calculate_mean_reward());
+            dataframes.push(game.df_results.clone().unwrap());
+            resulting_actions.push(game.resulting_actions.clone().unwrap());
+            resulting_rewards.push(game.resulting_rewards.clone().unwrap());
+            total_rewards.push(game.calculate_total_reward());
 
             // Summarise each game run.
             if IS_VERBOSE_MODE {
@@ -102,22 +100,24 @@ impl SimulationRunner {
         // 3) resulting rewards recieved
         // 4) total rewards recieved for each game
         self.df_vector = Some(dataframes);
-        self.resulting_actions_vector = Some(resulting_actions_vector);
-        self.resulting_rewards_vector = Some(resulting_rewards_vector);
+        self.resulting_actions_vector = Some(resulting_actions);
+        self.resulting_rewards_vector = Some(resulting_rewards);
         self.total_rewards_per_game = Some(total_rewards);
 
         if IS_VERBOSE_MODE {
             self.print_df_results();
             println!("Average rewards per game is: {:?}", average_rewards);
         }
+
         // Calculate mean reward for all the games
         let total_rewards: f64 = average_rewards.iter().sum();
         let mean_reward: f64 = total_rewards / (self.num_of_games as f64);
+
         // We expect the average mean reward to be close to 0.5 in case all random actions
         // have been selected in all the steps. We also have a random probabilities for each
         // of the armed bandit.
         println!("## Mean for all the games played ##");
-        println!("Mean Reward: {:?} \t total_reward: {}", mean_reward, total_rewards);
+        println!("\nMean Reward: {:?} \t total_reward: {}", mean_reward, total_rewards);
     }
 
     pub fn bulk_run_bernulli_simulation(&mut self) {
@@ -129,26 +129,25 @@ impl SimulationRunner {
             NUM_OF_GAMES_TO_PLAY
         );
         // Generate vector with random epsilons and alphas different for each game
-        let mut epsilons = vec![];
-        let mut alphas = vec![];
-        for game_run in 0..self.num_of_games as usize {
-            let epsilon = generate_uniform_random_number();
-            let alpha = generate_uniform_random_number();
-            epsilons.insert(game_run, epsilon);
-            alphas.insert(game_run, alpha);
-        }
+        let epsilons = vec![0.0, 0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        let alphas = vec![0.0, 0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        // let epsilons: Vec<f64> = (0..self.num_of_games)
+        //     .map(|_| generate_uniform_random_number())
+        //     .collect();
+        // let alphas: Vec<f64> = (0..self.num_of_games)
+        //     .map(|_| generate_uniform_random_number())
+        //     .collect();
 
-        // Set alphas and epsilon for each game
-        let mut games = vec![];
-        for index in 0..self.num_of_games as usize {
-            let mut game = BernulliMultiArmedBanditsGame::new();
-            game.set_alpha(alphas[index]);
-            game.set_epsilon(epsilons[index]);
-            games.insert(index, game);
-        }
-
-        // Override games
-        self.games = games;
+        self.games = alphas
+            .iter()
+            .zip(epsilons.iter())
+            .map(|(&alpha, &epsilon)| {
+                let mut game = BernulliMultiArmedBanditsGame::new();
+                game.set_alpha(alpha);
+                game.set_epsilon(epsilon);
+                game
+            })
+            .collect();
 
         // Run games and save results
         self.run_bernulli_multi_armed_simulation_game();

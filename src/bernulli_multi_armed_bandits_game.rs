@@ -130,7 +130,7 @@ impl BernulliMultiArmedBanditsGame {
             .map(|(index, _)| index)
             .collect();
 
-        if IS_VERBOSE_MODE {
+        if PRINT_EACH_STEP {
             println!("Max Q value: {}", max_value);
             println!("Indices that correspond to this value: {:?}", max_indices);
         }
@@ -222,11 +222,21 @@ impl BernulliMultiArmedBanditsGame {
 
         dfr = dfr
             .lazy()
-            .with_column((col("actual_probability") / col("frequency")).alias("diff"))
+            .with_column((col("actual_probability") - col("mean_reward")).alias("diff_actual_mean"))
             .collect()
             .unwrap();
 
-        dfr = dfr.sort(["total_reward"], true).expect("Couldn't sort the dataframe");
+        dfr = dfr
+            .lazy()
+            .with_column(
+                (col("actual_probability") - col("learned_probability")).alias(
+                    "diff_actual_learned"
+                )
+            )
+            .collect()
+            .unwrap();
+
+        dfr = dfr.sort(["actual_probability"], true).expect("Couldn't sort the dataframe");
         self.df_results = Some(dfr);
     }
 
