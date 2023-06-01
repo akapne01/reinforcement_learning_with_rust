@@ -142,13 +142,15 @@ impl SimulationRunner {
             println!("# Leraning correctness score: {}\n", learning_score);
             scores.push(learning_score);
         }
-        let mean_score: f64 = scores.iter().sum();
+        let total_score: f64 = scores.iter().sum();
+        let mean_score = total_score / (self.num_of_games as f64);
         println!("\n### Learning correctness average score: {}", mean_score);
         // We expect the average mean reward to be close to 0.5 in case all random actions
         // have been selected in all the steps. We also have a random probabilities for each
         // of the armed bandit.
         println!("\nMean for all the games played");
-        println!("\n### Mean Reward: {:?} \t total_reward: {}\n", mean_reward, total_rewards);
+        println!("\nAlpha: {} \t Epsilon: {}", ALPHA, EPSILON);
+        println!("\n### Mean Reward: {:?} \t Mean Learning Score: {}\n", mean_reward, mean_score);
     }
 
     pub fn bulk_run_bernulli_simulation(&mut self) {

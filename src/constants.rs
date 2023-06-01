@@ -1,5 +1,5 @@
 /// If true, prints in console additional inforamtion.
-pub const IS_VERBOSE_MODE: bool = true;
+pub const IS_VERBOSE_MODE: bool = false;
 /// If true, prints out the action taken and reward receieved for each turn in the game.
 pub const PRINT_EACH_STEP: bool = false;
 /// Represent number of independent games to play.
