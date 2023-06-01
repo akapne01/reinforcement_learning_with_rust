@@ -7,4 +7,5 @@ use crate::simulation_runner::SimulationRunner;
 fn main() {
     let mut runner = SimulationRunner::new();
     runner.run_bernulli_multi_armed_simulation_game();
+    // runner.bulk_run_bernulli_simulation();
 }

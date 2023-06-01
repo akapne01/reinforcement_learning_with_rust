@@ -230,12 +230,43 @@ impl BernulliMultiArmedBanditsGame {
         self.df_results = Some(dfr);
     }
 
-    pub fn calculate_average_reward(&mut self) -> f64 {
+    /// Calculates the average reward received in each turn
+    pub fn calculate_mean_reward(&mut self) -> f64 {
         if self.resulting_rewards.is_none() {
             self.run_and_record_resuts();
         }
         let total: f64 = self.resulting_rewards.as_ref().unwrap().iter().sum();
         total / (self.num_of_turns as f64)
+    }
+
+    /// Allows to change epsilon value for differnt games
+    pub fn set_epsilon(&mut self, epsilon: f64) {
+        self.epsilon = epsilon;
+    }
+
+    /// Allows to change alpha value for differnt games
+    pub fn set_alpha(&mut self, alpha: f64) {
+        self.alpha = alpha;
+    }
+
+    pub fn get_epsilon(&self) -> f64 {
+        self.epsilon
+    }
+
+    pub fn get_alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    /// Calculates the total rewards received by playing game
+    pub fn calculate_total_reward(&mut self) -> f64 {
+        if self.resulting_rewards.is_none() {
+            self.run_and_record_resuts();
+        }
+        let mut total = 0.0;
+        for reward in self.resulting_rewards.as_ref().expect("Rewards are not populated") {
+            total += reward;
+        }
+        total
     }
 }
 
