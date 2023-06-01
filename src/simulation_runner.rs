@@ -13,11 +13,20 @@ use crate::constants::{
 };
 
 pub struct SimulationRunner {
+    /// Represents number of games to run.
     num_of_games: i32,
+    /// This vector holds an instances of games.
     games: Vec<BernulliMultiArmedBanditsGame>,
+    /// Contains resulting data frames from each of the games played.
     df_vector: Option<Vec<DataFrame>>,
+    /// Contains vector of vectors with all the actions taken in that game.
+    /// Index of the first vector represents the game numebr. Index of the
+    /// underlying vector represents the game try number.
     resulting_actions_vector: Option<Vec<Vec<usize>>>,
+    /// Vector that represents all the rewards received for actions taken.
+    /// Indexes work the same as for actions vector above.
     resulting_rewards_vector: Option<Vec<Vec<f64>>>,
+    /// Index represents the game numebr. Holds total values recieved in each game.
     total_rewards_per_game: Option<Vec<f64>>,
 }
 
@@ -68,7 +77,7 @@ impl SimulationRunner {
         // Run each game and record results for each game run.
         for game_run in 0..self.num_of_games as usize {
             if IS_VERBOSE_MODE {
-                println!("\n# Game run: {} #", game_run);
+                println!("\n# Game run: {} #\n", game_run);
             }
 
             let game = &mut self.games[game_run];
@@ -113,11 +122,33 @@ impl SimulationRunner {
         let total_rewards: f64 = average_rewards.iter().sum();
         let mean_reward: f64 = total_rewards / (self.num_of_games as f64);
 
+        // Perform a check to see if agent has learned the actual proabilites.
+        // This dataframe is already sorted by field: actual_probability
+        // Take column as series: learned_probability and check if it is in descending order.
+        let mut scores = Vec::new();
+        for i in 0..self.num_of_games as usize {
+            let df_vector = self.df_vector.clone().unwrap();
+
+            let series = df_vector[i].column("learned_probability").expect("Column not found.");
+
+            let sorted = series.sort(true);
+            let did_agent_learned = series.eq(&sorted);
+            println!(
+                "In game no: {} agent has learned probabilities in correct order?: {}",
+                i,
+                did_agent_learned
+            );
+            let learning_score = self.games[i].calculate_learning_correctness_score();
+            println!("# Leraning correctness score: {}\n", learning_score);
+            scores.push(learning_score);
+        }
+        let mean_score: f64 = scores.iter().sum();
+        println!("\n### Learning correctness average score: {}", mean_score);
         // We expect the average mean reward to be close to 0.5 in case all random actions
         // have been selected in all the steps. We also have a random probabilities for each
         // of the armed bandit.
-        println!("## Mean for all the games played ##");
-        println!("\nMean Reward: {:?} \t total_reward: {}", mean_reward, total_rewards);
+        println!("\nMean for all the games played");
+        println!("\n### Mean Reward: {:?} \t total_reward: {}\n", mean_reward, total_rewards);
     }
 
     pub fn bulk_run_bernulli_simulation(&mut self) {
@@ -129,8 +160,8 @@ impl SimulationRunner {
             NUM_OF_GAMES_TO_PLAY
         );
         // Generate vector with random epsilons and alphas different for each game
-        let epsilons = vec![0.0, 0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
-        let alphas = vec![0.0, 0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        // let epsilons = vec![0.0, 0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+        // let alphas = vec![0.0, 0.01, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
         // let epsilons: Vec<f64> = (0..self.num_of_games)
         //     .map(|_| generate_uniform_random_number())
         //     .collect();
@@ -138,16 +169,16 @@ impl SimulationRunner {
         //     .map(|_| generate_uniform_random_number())
         //     .collect();
 
-        self.games = alphas
-            .iter()
-            .zip(epsilons.iter())
-            .map(|(&alpha, &epsilon)| {
-                let mut game = BernulliMultiArmedBanditsGame::new();
-                game.set_alpha(alpha);
-                game.set_epsilon(epsilon);
-                game
-            })
-            .collect();
+        // self.games = alphas
+        //     .iter()
+        //     .zip(epsilons.iter())
+        //     .map(|(&alpha, &epsilon)| {
+        //         let mut game = BernulliMultiArmedBanditsGame::new();
+        //         game.set_alpha(alpha);
+        //         game.set_epsilon(epsilon);
+        //         game
+        //     })
+        //     .collect();
 
         // Run games and save results
         self.run_bernulli_multi_armed_simulation_game();

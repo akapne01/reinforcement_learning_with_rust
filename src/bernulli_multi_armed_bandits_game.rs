@@ -107,6 +107,15 @@ impl BernulliMultiArmedBanditsGame {
     /// new_estimate = old_estimate + step_size (target - old_estimate)
     fn update_value_function(&mut self, action: usize, reward: f64) {
         self.q_values[action] += self.alpha * (reward - self.q_values[action]);
+        if PRINT_EACH_STEP {
+            println!(
+                "# Updating value function. Alpha: {} \t action: {} \t reward: {} #",
+                self.alpha,
+                action,
+                reward
+            );
+            println!("   After update: {:?}", self.q_values);
+        }
     }
 
     /// Action selection policy: epsilon greedy.
@@ -131,6 +140,7 @@ impl BernulliMultiArmedBanditsGame {
             .collect();
 
         if PRINT_EACH_STEP {
+            println!("# Selecting Action with epsilon greedy policy. Epsilon: {} #", self.epsilon);
             println!("Max Q value: {}", max_value);
             println!("Indices that correspond to this value: {:?}", max_indices);
         }
@@ -147,22 +157,38 @@ impl BernulliMultiArmedBanditsGame {
     /// This function populates results vector that contains the bandit number selecte dand reward
     /// recieved on that trial.
     fn run_and_record_resuts(&mut self) {
+        // const NUM_EXPLORATORY_TRIALS: usize = 1000;
+        // const MIN_EPSILON: f64 = 0.05;
         let mut resulting_actions = vec![];
         let mut resulting_rewards = vec![];
 
-        for trial in 0..self.num_of_turns as usize {
+        for turn in 0..self.num_of_turns as usize {
+            // For first n actions only explore. Then exploratory
+            // action is taken with probability of MIN_EPSILON.
+            // if turn == NUM_EXPLORATORY_TRIALS {
+            //     self.set_epsilon(MIN_EPSILON);
+            // }
             let action_to_take = self.policy_select_epsilon_greedy_action();
             let reward = self.bandits[action_to_take].pull();
+
+            // Step size parameter alpha changes at every step and is
+            // 1/n which corresponds to the average mean.
+            // The first trials are given bigger weight and importance
+            // and as n increases the importance given to the recieved
+            // reward decreases.
+            // let alpha = 1.0 / ((turn as f64) + 1.0);
+            // self.set_alpha(alpha);
+
             self.update_value_function(action_to_take, reward);
-            resulting_actions.insert(trial, action_to_take);
-            resulting_rewards.insert(trial, reward);
+            resulting_actions.insert(turn, action_to_take);
+            resulting_rewards.insert(turn, reward);
 
             if PRINT_EACH_STEP {
                 println!(
-                    "Turn={} \t Playing bandit {} \t Reward is {}",
-                    trial,
+                    "\nTurn={} \t Playing bandit {} \t Reward is {}",
+                    turn,
                     action_to_take,
-                    resulting_rewards[trial]
+                    resulting_rewards[turn]
                 );
             }
         }
@@ -236,6 +262,14 @@ impl BernulliMultiArmedBanditsGame {
             .collect()
             .unwrap();
 
+        dfr = dfr
+            .lazy()
+            .with_column(
+                (col("mean_reward") - col("learned_probability")).alias("diff_mean_learned")
+            )
+            .collect()
+            .unwrap();
+
         dfr = dfr.sort(["actual_probability"], true).expect("Couldn't sort the dataframe");
         self.df_results = Some(dfr);
     }
@@ -277,6 +311,20 @@ impl BernulliMultiArmedBanditsGame {
             total += reward;
         }
         total
+    }
+
+    /// Numerical value that represent's how good the learning is.
+    /// the closer to the 0 the better the score.
+    pub fn calculate_learning_correctness_score(&mut self) -> f64 {
+        // from df take 2 columns: actual_probability and learned_probability
+        // we have a column: diff_actual_learned. We want to take abs and sum all the elements
+        let data = self.df_results
+            .as_ref()
+            .unwrap()
+            .column("diff_actual_learned")
+            .expect("Column not found");
+        let sum: f64 = data.abs().unwrap().sum().unwrap();
+        sum
     }
 }
 
