@@ -10,6 +10,7 @@ use crate::constants::{
     ALPHA,
     NUM_OF_BANDITS,
     NUM_OF_TURNS_IN_A_GAME,
+    SHOULD_DECKAY_EPSILON,
 };
 
 pub struct SimulationRunner {

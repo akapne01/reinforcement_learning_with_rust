@@ -13,6 +13,8 @@ use crate::{
         EPSILON,
         ALPHA,
         IS_VERBOSE_MODE,
+        USE_AVERAGE_VALUE_UPDATE,
+        SHOULD_DECKAY_EPSILON,
     },
 };
 
@@ -63,6 +65,11 @@ pub struct BernulliMultiArmedBanditsGame {
     /// For comparison purposes also keeps a record of the actual probability
     /// of winning that was set for each of the slot machines to win.
     pub df_results: Option<DataFrame>,
+    /// Contains total reward and number of times the action was taken
+    total_reward_per_bandit: Vec<f64>,
+    /// Analogus to using alpha parameter. Initalized to 0. Represent number
+    /// of times each slot (bandit) was selected.
+    num_times_bandit_selected: Vec<usize>,
 }
 
 impl BernulliMultiArmedBanditsGame {
@@ -81,6 +88,8 @@ impl BernulliMultiArmedBanditsGame {
             resulting_actions: None,
             resulting_rewards: None,
             df_results: None,
+            total_reward_per_bandit: vec![0.0; NUM_OF_BANDITS as usize],
+            num_times_bandit_selected: vec![0; NUM_OF_BANDITS as usize],
         }
     }
 
@@ -111,6 +120,31 @@ impl BernulliMultiArmedBanditsGame {
             println!(
                 "# Updating value function. Alpha: {} \t action: {} \t reward: {} #",
                 self.alpha,
+                action,
+                reward
+            );
+            println!("   After update: {:?}", self.q_values);
+        }
+    }
+
+    /// Simulates mean average update for each bandit
+    fn update_average_value_function(&mut self, action: usize, reward: f64) {
+        // update alpha
+        self.num_times_bandit_selected[action] += 1;
+        self.total_reward_per_bandit[action] += reward;
+
+        // println!("Action increased: {:?}", self.num_times_bandit_selected);
+        // println!("Reward increased: {:?}", self.total_reward_per_bandit);
+
+        let alpha = 1.0 / (self.num_times_bandit_selected[action] as f64);
+
+        // println!("Alpha calculated: {}", alpha);
+        self.q_values[action] += alpha * (reward - self.q_values[action]);
+
+        if PRINT_EACH_STEP {
+            println!(
+                "# Updating value function. Alpha: {} \t action: {} \t reward: {} #",
+                alpha,
                 action,
                 reward
             );
@@ -168,8 +202,14 @@ impl BernulliMultiArmedBanditsGame {
             // if turn == NUM_EXPLORATORY_TRIALS {
             //     self.set_epsilon(MIN_EPSILON);
             // }
-            let action_to_take = self.policy_select_epsilon_greedy_action();
-            let reward = self.bandits[action_to_take].pull();
+
+            if SHOULD_DECKAY_EPSILON {
+                if turn == 1000 {
+                    self.set_epsilon(0.01);
+                }
+            }
+            let action_taken = self.policy_select_epsilon_greedy_action();
+            let reward = self.bandits[action_taken].pull();
 
             // Step size parameter alpha changes at every step and is
             // 1/n which corresponds to the average mean.
@@ -178,16 +218,20 @@ impl BernulliMultiArmedBanditsGame {
             // reward decreases.
             // let alpha = 1.0 / ((turn as f64) + 1.0);
             // self.set_alpha(alpha);
+            if USE_AVERAGE_VALUE_UPDATE {
+                self.update_average_value_function(action_taken, reward);
+            } else {
+                self.update_value_function(action_taken, reward);
+            }
 
-            self.update_value_function(action_to_take, reward);
-            resulting_actions.insert(turn, action_to_take);
+            resulting_actions.insert(turn, action_taken);
             resulting_rewards.insert(turn, reward);
 
             if PRINT_EACH_STEP {
                 println!(
                     "\nTurn={} \t Playing bandit {} \t Reward is {}",
                     turn,
-                    action_to_take,
+                    action_taken,
                     resulting_rewards[turn]
                 );
             }
