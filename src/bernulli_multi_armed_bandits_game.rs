@@ -2,7 +2,7 @@ use polars::prelude::*;
 
 use crate::{
     bernulli_bandit::{
-        BernulliBandit,
+        BernoulliBandit,
         generate_uniform_random_number,
         generate_random_number_in_range,
     },
@@ -37,7 +37,7 @@ pub struct BernulliMultiArmedBanditsGame {
     /// This vector holds the actual bandits that are genearted each
     /// with the random probability that agent does not know, but is
     /// attempting to learn
-    bandits: Vec<BernulliBandit>,
+    bandits: Vec<BernoulliBandit>,
     /// This vector represents the long term knowledge that RL agent has learned.
     /// It corresponds to the value function. Index of this vector represents the
     /// number of the armed bandit. Value recorded in the vector is an estimation
@@ -81,7 +81,7 @@ impl BernulliMultiArmedBanditsGame {
         BernulliMultiArmedBanditsGame {
             num_of_bandits: NUM_OF_BANDITS,
             num_of_turns: NUM_OF_TURNS_IN_A_GAME,
-            bandits: BernulliBandit::new_as_vector(NUM_OF_BANDITS as usize),
+            bandits: BernoulliBandit::new_as_vector(NUM_OF_BANDITS as usize),
             q_values: vec![0.0; NUM_OF_BANDITS as usize],
             epsilon: EPSILON,
             alpha: ALPHA,

@@ -7,7 +7,7 @@ pub const NUM_OF_GAMES_TO_PLAY: i32 = 1;
 /// Represents the number of slot machines being played in k-armed bandit problem, it is the number k.
 pub const NUM_OF_BANDITS: usize = 10;
 /// Represents the number of turns in one game.
-pub const NUM_OF_TURNS_IN_A_GAME: usize = 1_000_000;
+pub const NUM_OF_TURNS_IN_A_GAME: usize = 10_000;
 /// Represents the probability with which random action is selected. It reflects the probability
 /// with which agent explores the action space. The probability that agent takes the action that
 /// exploits the knowledge that it has learned is (1-EPSILON).
