@@ -18,13 +18,13 @@ pub fn generate_random_number_in_range(min: usize, max: usize) -> usize {
 /// It has a certain proability of winning or loosing that is constant
 /// and does not change over time.
 /// This probability is not known beforehand.
-#[derive(PartialEq, Debug)]
-pub struct BernoulliBandit {
+#[derive(PartialEq, Debug, Clone)]
+pub struct BernoulliBanditEnvironment {
     probability: f64,
     distribution: Bernoulli,
 }
 
-impl BernoulliBandit {
+impl BernoulliBanditEnvironment {
     /// This method allows to create a new Bernulli Bandit object with custom
     /// proabability.
     pub fn new(probability: f64) -> Self {
@@ -32,7 +32,7 @@ impl BernoulliBandit {
         if IS_VERBOSE_MODE {
             println!("# Creating Bernulli Bandit with probability: {probability} #");
         }
-        BernoulliBandit {
+        BernoulliBanditEnvironment {
             probability,
             distribution: Bernoulli::new(probability).unwrap(),
         }
@@ -42,19 +42,19 @@ impl BernoulliBandit {
     /// random probability.
     pub fn new_random() -> Self {
         let probability = generate_uniform_random_number();
-        BernoulliBandit::new(probability)
+        BernoulliBanditEnvironment::new(probability)
     }
 
     /// Generates a specified number of new random proability BernoulliBandit objects
     /// and returns them as vector
-    pub fn new_as_vector(number_of_bandits: usize) -> Vec<BernoulliBandit> {
-        (0..number_of_bandits).map(|_| BernoulliBandit::new_random()).collect()
+    pub fn new_as_vector(number_of_bandits: usize) -> Vec<BernoulliBanditEnvironment> {
+        (0..number_of_bandits).map(|_| BernoulliBanditEnvironment::new_random()).collect()
     }
 
     /// Each pull represents pulling a leaver similar like in the slot machine.
     /// Pulling returns reward that is of Bernoulli distribution, meaning that
     /// 1.0 represent win, and 0.0 represent loss.
-    pub fn pull(&self) -> f64 {
+    pub fn step(&self) -> f64 {
         let result = self.distribution.sample(&mut rand::thread_rng());
         match result {
             true => 1.0,
@@ -66,7 +66,7 @@ impl BernoulliBandit {
     /// Since proability is set randomly, we need a way to obtain how the
     /// actual probability was so it can be compared to what the agent
     /// has learned.
-    pub fn get_probablity(&self) -> f64 {
+    pub fn _get_actual_probablity(&self) -> f64 {
         self.probability
     }
 }
@@ -112,36 +112,36 @@ mod test {
 
     #[test]
     fn test_create_bernoulli_bandit_with_valid_probability() {
-        let bandit = BernoulliBandit::new(0.5);
+        let bandit = BernoulliBanditEnvironment::new(0.5);
         assert_eq!(bandit.probability, 0.5);
     }
 
     #[test]
     #[should_panic(expected = "Probability must be in the range [0, 1].")]
     fn test_create_bernoulli_bandit_with_probability_greater_than_one() {
-        BernoulliBandit::new(1.5);
+        BernoulliBanditEnvironment::new(1.5);
     }
 
     #[test]
     #[should_panic(expected = "Probability must be in the range [0, 1].")]
     fn test_create_bernoulli_bandit_with_probability_less_than_zero() {
-        BernoulliBandit::new(-0.5);
+        BernoulliBanditEnvironment::new(-0.5);
     }
 
     #[test]
     fn test_bernoulli_bandit_pull_always_returns_zero_when_probability_is_zero() {
-        let bandit = BernoulliBandit::new(0.0);
+        let bandit = BernoulliBanditEnvironment::new(0.0);
         for _ in 0..100 {
-            let result = bandit.pull();
+            let result = bandit.step();
             assert_eq!(result, 0.0, "Pull result is not zero when probability is zero");
         }
     }
 
     #[test]
     fn test_bernoulli_bandit_pull_always_returns_one_when_probability_is_one() {
-        let bandit = BernoulliBandit::new(1.0);
+        let bandit = BernoulliBanditEnvironment::new(1.0);
         for _ in 0..100 {
-            let result = bandit.pull();
+            let result = bandit.step();
             assert_eq!(result, 1.0, "Pull result is not one when probability is one");
         }
     }
@@ -161,11 +161,11 @@ mod test {
     fn test_bernoulli_bandit_pull_when_probability_is_half() {
         let mut success_counter = 0;
         let mut failure_counter = 0;
-        let bandit = BernoulliBandit::new(0.5);
+        let bandit = BernoulliBanditEnvironment::new(0.5);
         let expected_range = 450..550; // 1000 trials
 
         for _ in 0..1000 {
-            let result = bandit.pull();
+            let result = bandit.step();
             if result == 1.0 {
                 success_counter += 1;
             } else {
@@ -188,7 +188,7 @@ mod test {
 
     #[test]
     fn test_create_random_bernoulli_bandit() {
-        let bandit = BernoulliBandit::new_random();
+        let bandit = BernoulliBanditEnvironment::new_random();
         assert!(
             (0.0..=1.0).contains(&bandit.probability),
             "Randomly created bandit has an invalid probability: {}",
@@ -198,7 +198,7 @@ mod test {
 
     #[test]
     fn test_create_vector_of_bernoulli_bandits() {
-        let vector = BernoulliBandit::new_as_vector(10);
+        let vector = BernoulliBanditEnvironment::new_as_vector(10);
 
         assert_eq!(vector.is_empty(), false);
         assert_eq!(vector.len(), 10);
