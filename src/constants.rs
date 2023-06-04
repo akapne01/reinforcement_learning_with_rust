@@ -1,13 +1,13 @@
 /// If true, prints in console additional inforamtion.
-pub const IS_VERBOSE_MODE: bool = true;
+pub const IS_VERBOSE_MODE: bool = false;
 /// If true, prints out the action taken and reward receieved for each turn in the game.
 pub const PRINT_EACH_STEP: bool = false;
 /// Represent number of independent games to play.
-pub const NUM_OF_GAMES_TO_PLAY: usize = 10;
+pub const NUM_OF_GAMES_TO_PLAY: usize = 100;
 /// Represents the number of slot machines being played in k-armed bandit problem, it is the number k.
 pub const NUM_OF_BANDITS: usize = 10;
 /// Represents the number of turns in one game.
-pub const NUM_OF_TURNS_IN_A_GAME: usize = 10_000;
+pub const NUM_OF_TURNS_IN_A_GAME: usize = 100_000;
 /// Represents the probability with which random action is selected. It reflects the probability
 /// with which agent explores the action space. The probability that agent takes the action that
 /// exploits the knowledge that it has learned is (1-EPSILON).

@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+use std::time::Instant;
 use crate::bernoulli_bandit::{
     BernoulliBanditEnvironment,
     generate_random_number_in_range,
@@ -213,9 +215,21 @@ impl BernoulliGameLearningRunner {
     }
 
     pub fn run_all_games(&mut self) {
+        let start_time = Instant::now();
         for n in 0..self.num_of_games as usize {
             self.games[n].run_one_game();
         }
+        let end_time = Instant::now();
+        let elapsed_time = end_time - start_time;
+        println!("# Non Parallel Run: Elapsed time: {:.2?}", elapsed_time);
+    }
+
+    pub fn run_all_games_in_parallel(&mut self) {
+        let start_time = Instant::now();
+        self.games.par_iter_mut().for_each(|game| game.run_one_game());
+        let end_time = Instant::now();
+        let elapsed_time = end_time - start_time;
+        println!("# Parallel Run: Elapsed time: {:.2?}", elapsed_time);
     }
 }
 
