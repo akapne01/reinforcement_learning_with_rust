@@ -1,20 +1,20 @@
 use polars::prelude::*;
 
 use crate::{
-    bernoulli_multi_armed_bandits_game::{ BernoulliGameLearningRunner },
+    bernoulli_multi_armed_bandits_game::BernoulliParallelGameRunner,
     constants::{ NUM_OF_GAMES_TO_PLAY, NUM_OF_TURNS_IN_A_GAME, EPSILON, ALPHA },
 };
 
 pub struct BernoulliAgentStatisticsWrapper {
-    game_runner: BernoulliGameLearningRunner,
+    game_runner: BernoulliParallelGameRunner,
     for_game_df: Vec<Option<DataFrame>>,
     df: Option<DataFrame>,
 }
 
 impl BernoulliAgentStatisticsWrapper {
     pub fn new() -> Self {
-        let mut game_runner = BernoulliGameLearningRunner::new();
-        let n = game_runner.num_of_games;
+        let game_runner = BernoulliParallelGameRunner::new();
+        let n: usize = game_runner.num_of_games;
         BernoulliAgentStatisticsWrapper {
             game_runner,
             for_game_df: vec![None; n],
@@ -22,7 +22,7 @@ impl BernoulliAgentStatisticsWrapper {
         }
     }
 
-    pub fn from(runner: BernoulliGameLearningRunner) -> Self {
+    pub fn from(runner: BernoulliParallelGameRunner) -> Self {
         let n = runner.num_of_games;
         BernoulliAgentStatisticsWrapper {
             game_runner: runner,
@@ -32,7 +32,7 @@ impl BernoulliAgentStatisticsWrapper {
     }
 
     pub fn run(&mut self) {
-        self.game_runner.run_all_games();
+        self.game_runner.run_all_games_in_parallel();
         self.save_df_per_each_game();
         self.save_df_for_all_games();
         self.display_statistics();
@@ -83,7 +83,7 @@ impl BernoulliAgentStatisticsWrapper {
         let num_of_bandits = game.num_of_bandits;
 
         if game.resulting_actions.is_none() || game.resulting_rewards.is_none() {
-            self.game_runner.run_all_games();
+            self.game_runner.run_all_games_in_parallel();
         }
 
         let mut bandits_frequency = vec![0; num_of_bandits];
@@ -144,9 +144,9 @@ impl BernoulliAgentStatisticsWrapper {
 
     /// Calculates the average reward received in each turn
     fn get_mean_reward_per_game(&mut self, n: usize) -> f64 {
-        let mut game = self.game_runner.games[n].clone();
+        let game = self.game_runner.games[n].clone();
         if game.resulting_rewards.is_none() {
-            self.game_runner.run_all_games();
+            self.game_runner.run_all_games_in_parallel();
         }
         let total: f64 = game.resulting_rewards.as_ref().unwrap().iter().sum();
         total / (game.num_of_turns as f64)
@@ -169,7 +169,7 @@ impl BernoulliAgentStatisticsWrapper {
     fn get_total_reward_per_game(&mut self, n: usize) -> f64 {
         let game = self.game_runner.games[n].clone();
         if game.resulting_rewards.is_none() {
-            self.game_runner.run_all_games();
+            self.game_runner.run_all_games_in_parallel();
         }
         let mut total = 0.0;
         for reward in game.resulting_rewards.as_ref().expect("Rewards are not populated") {
@@ -186,7 +186,8 @@ impl BernoulliAgentStatisticsWrapper {
             .unwrap()
             .column("diff_actual_learned")
             .expect("Column not found");
-        let sum: f64 = data.abs().unwrap().sum().unwrap();
+        // let sum: f64 = data.abs().unwrap().sum().unwrap();
+        let sum = data.sum().unwrap();  // Change to absolute sum 
         sum
     }
 

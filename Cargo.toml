@@ -7,5 +7,10 @@ edition = "2021"
 
 [dependencies]
 rand = "0.8.5"
-polars = { version = "0.30.0", features = ["lazy"] }
+# Downgrade polars from 0.30 to 0.28 to be able to use tarpaulin due to dependnecy issue for indexmap. 
+# Tarpaulin downgrades the package from 1.9.2 to 1.8.2 and makes the polars package not to compile.
+polars = { version = "0.28.0", features = ["lazy"] }
 rayon = "1.7"
+
+[build]
+profiler = true

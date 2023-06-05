@@ -197,31 +197,22 @@ impl BernoulliOneGameLearningAgent {
 }
 
 /// This struct allows to run multiple Bernoulli Multiple Armed Bandit games
-pub struct BernoulliGameLearningRunner {
+/// in parallel
+pub struct BernoulliParallelGameRunner {
     pub num_of_games: usize,
     pub games: Vec<BernoulliOneGameLearningAgent>,
 }
 
-impl BernoulliGameLearningRunner {
+impl BernoulliParallelGameRunner {
     pub fn new() -> Self {
         let games: Vec<BernoulliOneGameLearningAgent> = (0..NUM_OF_GAMES_TO_PLAY)
             .map(|_| BernoulliOneGameLearningAgent::new())
             .collect();
 
-        BernoulliGameLearningRunner {
+        BernoulliParallelGameRunner {
             num_of_games: NUM_OF_GAMES_TO_PLAY,
             games,
         }
-    }
-
-    pub fn run_all_games(&mut self) {
-        let start_time = Instant::now();
-        for n in 0..self.num_of_games as usize {
-            self.games[n].run_one_game();
-        }
-        let end_time = Instant::now();
-        let elapsed_time = end_time - start_time;
-        println!("# Non Parallel Run: Elapsed time: {:.2?}", elapsed_time);
     }
 
     pub fn run_all_games_in_parallel(&mut self) {
