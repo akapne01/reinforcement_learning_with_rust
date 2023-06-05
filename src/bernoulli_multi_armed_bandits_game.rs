@@ -226,87 +226,92 @@ impl BernoulliParallelGameRunner {
 
 #[cfg(test)]
 mod test {
-    use crate::constants::IS_VERBOSE_MODE;
-
     use super::*;
 
     #[test]
-    fn test_creation_of_game() {
-        let game = BernoulliOneGameLearningAgent::new();
+    fn test_creation_of_agent() {
+        let agent = BernoulliOneGameLearningAgent::new();
 
-        assert_eq!(game.num_of_bandits, NUM_OF_BANDITS);
-        assert_eq!(game.num_of_turns, NUM_OF_TURNS_IN_A_GAME);
-        assert_eq!(game.environment.is_empty(), false);
-        assert_eq!(game.environment.len(), NUM_OF_BANDITS);
+        assert_eq!(agent.num_of_bandits, NUM_OF_BANDITS);
+        assert_eq!(agent.num_of_turns, NUM_OF_TURNS_IN_A_GAME);
+        assert_eq!(agent.environment.is_empty(), false);
+        assert_eq!(agent.environment.len(), NUM_OF_BANDITS);
+        assert_eq!(agent.q_values, vec![0.0; NUM_OF_BANDITS]);
+        assert_eq!(agent.total_reward_per_bandit, vec![0.0; NUM_OF_BANDITS]);
+        assert_eq!(agent.num_times_bandit_selected, vec![0; NUM_OF_BANDITS]);
+        assert_eq!(agent.epsilon, EPSILON);
+        assert_eq!(agent.alpha, ALPHA);
+        assert!(agent.resulting_actions.is_none());
+        assert!(agent.resulting_rewards.is_none());
     }
 
     #[test]
-    fn test_running_game_stohastically() {
-        let mut game = BernoulliOneGameLearningAgent::new();
+    fn test_running_one_game_populates_results() {
+        let mut agent = BernoulliOneGameLearningAgent::new();
 
-        game.run_one_game();
+        agent.run_one_game();
 
-        assert!(game.resulting_actions.is_some(), "Should populate resulting actions vector");
-        assert_eq!(
-            game.resulting_actions.unwrap().len(),
-            NUM_OF_TURNS_IN_A_GAME as usize,
-            "There is action recorded for each trial."
-        );
-        assert!(
-            game.resulting_rewards.is_some(),
-            "Should populate resulting rewards received vector"
-        );
-        assert_eq!(
-            game.resulting_rewards.unwrap().len(),
-            NUM_OF_TURNS_IN_A_GAME as usize,
-            "There is a reward recorded for each trial."
-        );
+        assert!(agent.resulting_actions.is_some());
+        assert!(agent.resulting_rewards.is_some());
+        assert_eq!(agent.resulting_actions.unwrap().len(), agent.num_of_turns);
+        assert_eq!(agent.resulting_rewards.unwrap().len(), agent.num_of_turns);
     }
 
     #[test]
     fn test_random_action_within_the_range_returned() {
-        let game = BernoulliOneGameLearningAgent::new();
-        let turns = 10_000;
-        let expected_mean = (0.0 + (NUM_OF_BANDITS as f64) - 1.0) / 2.0;
+        let agent = BernoulliOneGameLearningAgent::new();
+        let num_of_turns = 10_000;
+        let expected_mean = (0.0 + (agent.num_of_bandits as f64) - 1.0) / 2.0;
+        let expected_range = expected_mean - 0.5..expected_mean + 0.5;
+
+        // Simulate taking many random actions
         let mut actions_taken = vec![];
-        for i in 0..turns {
-            // Always select random action
-            let action = game.random_action_selection_policy();
-            assert!(action < (game.num_of_bandits as u32).try_into().unwrap());
+        for i in 0..num_of_turns {
+            let action = agent.random_action_selection_policy();
+
+            assert!(action < agent.num_of_bandits);
             actions_taken.insert(i, action);
         }
-        let sum: usize = actions_taken.iter().sum();
-        let actual_mean = (sum as f64) / (turns as f64);
 
-        let expected_range = expected_mean - 0.5..expected_mean + 0.5;
-        assert!(
-            expected_range.contains(&actual_mean),
-            "We are working with probabilities and actual mean can vary a bit from expected mean so checking if it's in the range."
-        );
+        let sum_of_actions: usize = actions_taken.iter().sum();
+
+        let actual_mean = (sum_of_actions as f64) / (num_of_turns as f64);
+
+        assert!(expected_range.contains(&actual_mean), "Actual mean is not within expected range.");
     }
 
     #[test]
     fn test_update_value_function() {
-        let mut game = BernoulliOneGameLearningAgent::new();
-        // Only update value function if exploratory action taken?
-        let mut expected_value_function = vec![0.0; NUM_OF_BANDITS as usize];
+        let action = 0;
+        let reward = 1.0;
+        let mut agent = BernoulliOneGameLearningAgent::new();
+        let expected_before_update = vec![0.0; NUM_OF_BANDITS as usize];
+        let mut expected_after_1_update = vec![0.0; NUM_OF_BANDITS as usize];
+        expected_after_1_update[action] += agent.alpha * reward;
+        let mut expected_after_2_update = expected_after_1_update.clone();
+        expected_after_2_update[action] += agent.alpha * (reward - expected_after_1_update[action]);
 
-        // 1st update
-        assert_eq!(game.q_values, expected_value_function);
-        game.update_value_function(0, 1.0);
-        expected_value_function[0] = game.alpha * (1.0 - 0.0);
-        assert_eq!(game.q_values, expected_value_function);
+        assert_eq!(
+            agent.q_values,
+            expected_before_update,
+            "Value function not 0.0 before the first update"
+        );
 
-        println!("After 1st turn the expected value function: {:?}", expected_value_function);
-        println!("After 1st turn the actual value function: {:?}", game.q_values);
+        agent.update_value_function(action, reward);
 
-        // 2nd update
-        game.update_value_function(0, 1.0);
-        expected_value_function[0] += game.alpha * (1.0 - expected_value_function[0]);
-        assert_eq!(game.q_values, expected_value_function);
+        assert_eq!(
+            agent.q_values,
+            expected_after_1_update,
+            "Value function not as expected after 1 update"
+        );
 
-        println!("After 3rd turn the expected value function: {:?}", expected_value_function);
-        println!("After 3rd turn the actual value function: {:?}", game.q_values);
+        agent.update_value_function(action, reward);
+
+        assert_eq!(
+            agent.q_values,
+            expected_after_2_update,
+            "Value function not as expected after 2 updates"
+        );
     }
 
     #[test]
@@ -314,15 +319,19 @@ mod test {
         let turns = 100_000;
 
         // Initalize game and set learned Q values to reflect the  actual probabilities for testing purposes
-        let mut game = BernoulliOneGameLearningAgent::new();
-        let mut probabilities = vec![0.0; game.num_of_bandits as usize];
-        for (index, bandit) in game.environment.iter().enumerate() {
+        let mut agent = BernoulliOneGameLearningAgent::new();
+        let mut probabilities = vec![0.0; agent.num_of_bandits as usize];
+
+        // Get actual probabilities
+        for (index, bandit) in agent.environment.iter().enumerate() {
             probabilities[index] = bandit._get_actual_probablity();
         }
 
-        game.q_values = probabilities.clone();
+        // Set actual proabilities as q_values. Here assumption is that agent
+        // has already learned correct q_values
+        agent.q_values = probabilities.clone();
 
-        // Calculate actual Maximum probability
+        // Calculate the largest probability value
         let max_value = probabilities
             .clone()
             .iter()
@@ -342,16 +351,17 @@ mod test {
         // taken on each turn.
         let mut actions_taken = vec![];
         for i in 0..turns {
-            let action = game.epsilon_greedy_action_selection_policy();
+            let action = agent.epsilon_greedy_action_selection_policy();
+
             assert!(
-                action < (game.num_of_bandits as u32).try_into().unwrap(),
-                "Don't expect action number to be bigger than number of slots"
+                action < agent.num_of_bandits,
+                "Action number cannot be bigger than the number of slots"
             );
             actions_taken.insert(i, action);
         }
 
         // Calculate the expected min times greedy action was taken based on a given EPSILON.
-        let num_times_greedy_action_expected = (1.0 - EPSILON) * (turns as f64);
+        let num_times_greedy_action_expected = (1.0 - agent.epsilon) * (turns as f64);
 
         // Count how many times greedy action was actually taken.
         let num_times_greedy_action_actually_taken = actions_taken
@@ -359,23 +369,99 @@ mod test {
             .filter(|&value| *value == max_indices[0])
             .count() as f64;
 
-        if IS_VERBOSE_MODE {
-            println!("\n# Actual max value: {}", max_value);
-            println!("# The actual max index: {:?}", max_indices);
-            println!("# Actual actions taken: {:?}", actions_taken);
-            println!(
-                "# Minimum Number of times greedy action expected: {:?}",
-                num_times_greedy_action_expected
-            );
-            println!(
-                "# Number of times greedy action actually taken: {:?}",
-                num_times_greedy_action_actually_taken
-            );
-        }
-
         assert!(
             num_times_greedy_action_actually_taken >= num_times_greedy_action_expected,
-            "Assert that greedy action was taken more or equal number of times than expected with probability (1 - epsilon)."
+            "Greedy action was taken less times than expected"
         );
+    }
+
+    #[test]
+    fn test_greedy_policy_when_one_value_is_the_best() {
+        let expected_action = 0;
+        let mut agent = BernoulliOneGameLearningAgent::new();
+        let mut q_values = vec![0.0; agent.num_of_bandits];
+        q_values[expected_action] = 0.9;
+        agent.q_values = q_values;
+
+        let actual_action = agent.greedy_action_selection_policy();
+
+        assert_eq!(actual_action, expected_action);
+    }
+
+    #[test]
+    fn test_greedy_policy_when_more_than_one_action_is_the_best() {
+        let expected_action_1 = 0;
+        let expected_action_2 = 1;
+        let mut agent = BernoulliOneGameLearningAgent::new();
+        let mut q_values = vec![0.0; agent.num_of_bandits];
+        q_values[expected_action_1] = 0.9;
+        q_values[expected_action_2] = 0.9;
+        agent.q_values = q_values;
+
+        let actual_action = agent.greedy_action_selection_policy();
+
+        assert!(vec![expected_action_1, expected_action_2].contains(&actual_action));
+    }
+
+    #[test]
+    fn test_upadate_average_value_function() {
+        let action = 0;
+        let reward = 1.0;
+        let mut agent = BernoulliOneGameLearningAgent::new();
+
+        let expected_before_update = vec![0.0; NUM_OF_BANDITS as usize];
+
+        let mut expected_after_1_update = vec![0.0; NUM_OF_BANDITS as usize];
+        expected_after_1_update[action] += agent.alpha * reward;
+
+        let mut expected_after_2_update = expected_after_1_update.clone();
+        expected_after_2_update[action] += agent.alpha * (reward - expected_after_1_update[action]);
+
+        assert_eq!(
+            agent.q_values,
+            expected_before_update,
+            "Value function not 0.0 before the first update"
+        );
+
+        agent.update_average_value_function(action, reward);
+
+        assert_eq!(agent.num_times_bandit_selected[action], 1);
+        assert_eq!(agent.total_reward_per_bandit[action], reward);
+        assert_eq!(agent.q_values[action], reward);
+
+        agent.update_average_value_function(action, reward);
+
+        assert_eq!(agent.num_times_bandit_selected[action], 2);
+        assert_eq!(agent.total_reward_per_bandit[action], reward * 2.0);
+        assert_eq!(agent.q_values[action], 1.0);
+    }
+
+    #[test]
+    fn test_bernoulli_paralel_game_runner_creation() {
+        let runner = BernoulliParallelGameRunner::new();
+
+        assert_eq!(runner.num_of_games, NUM_OF_GAMES_TO_PLAY);
+        assert_eq!(runner.games.is_empty(), false);
+        assert_eq!(runner.games.len(), NUM_OF_GAMES_TO_PLAY);
+    }
+
+    #[test]
+    fn test_bernoulli_game_runner_run_all_games() {
+        let mut runner = BernoulliParallelGameRunner::new();
+
+        for game in &runner.games {
+            assert!(game.resulting_actions.is_none());
+            assert!(game.resulting_rewards.is_none());
+        }
+
+        runner.run_all_games_in_parallel();
+
+        for game in &runner.games {
+            assert!(game.resulting_actions.is_some(), "Actions taken are not recorded.");
+            assert!(
+                game.resulting_rewards.is_some(),
+                "Rewards recieved for each action are not recorded"
+            );
+        }
     }
 }
