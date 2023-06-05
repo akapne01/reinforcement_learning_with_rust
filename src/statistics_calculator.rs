@@ -32,30 +32,30 @@ impl BernoulliAgentStatisticsWrapper {
     }
 
     pub fn run(&mut self) {
+        std::env::set_var("POLARS_FMT_MAX_COLS", "12");
+        std::env::set_var("POLARS_FMT_MAX_ROWS", "12");
+
         self.game_runner.run_all_games_in_parallel();
-        self.save_df_per_each_game();
-        self.save_df_for_all_games();
+        self.save_per_game_df();
+        self.save_summary_df_for_all_games();
         self.display_statistics();
     }
 
     /// Populates dataframe for each game separately
-    fn save_df_per_each_game(&mut self) {
-        std::env::set_var("POLARS_FMT_MAX_COLS", "12");
-        std::env::set_var("POLARS_FMT_MAX_ROWS", "12");
-
+    fn save_per_game_df(&mut self) {
         for n in 0..self.game_runner.num_of_games {
             self.populate_dataframe_for_game(n);
         }
     }
 
-    fn save_df_for_all_games(&mut self) {
+    fn save_summary_df_for_all_games(&mut self) {
         // rows: game
         // columns: mean_reward, total_reward, correctness_score
         let mut means = Vec::new();
         let mut scores = Vec::new();
         let mut totals = Vec::new();
 
-        (0..self.game_runner.num_of_games).for_each(|n| {
+        (0..self.game_runner.num_of_games).for_each(|n: usize| {
             let mean_reward = self.get_mean_reward_per_game(n);
             let learning_score = self.get_learning_score_for_game(n);
             let total_reward = self.get_total_reward_per_game(n);
@@ -80,11 +80,13 @@ impl BernoulliAgentStatisticsWrapper {
     /// If results are not present, then will run to create it.
     fn populate_dataframe_for_game(&mut self, n: usize) {
         let game = self.game_runner.games[n].clone();
-        let num_of_bandits = game.num_of_bandits;
 
         if game.resulting_actions.is_none() || game.resulting_rewards.is_none() {
             self.game_runner.run_all_games_in_parallel();
+            return self.populate_dataframe_for_game(n);
         }
+
+        let num_of_bandits = game.num_of_bandits;
 
         let mut bandits_frequency = vec![0; num_of_bandits];
         let mut bandits_rewards = vec![0.0; num_of_bandits];
@@ -147,6 +149,7 @@ impl BernoulliAgentStatisticsWrapper {
         let game = self.game_runner.games[n].clone();
         if game.resulting_rewards.is_none() {
             self.game_runner.run_all_games_in_parallel();
+            return self.get_mean_reward_per_game(n);
         }
         let total: f64 = game.resulting_rewards.as_ref().unwrap().iter().sum();
         total / (game.num_of_turns as f64)
@@ -170,6 +173,7 @@ impl BernoulliAgentStatisticsWrapper {
         let game = self.game_runner.games[n].clone();
         if game.resulting_rewards.is_none() {
             self.game_runner.run_all_games_in_parallel();
+            return self.get_total_reward_per_game(n);
         }
         let mut total = 0.0;
         for reward in game.resulting_rewards.as_ref().expect("Rewards are not populated") {
@@ -181,14 +185,23 @@ impl BernoulliAgentStatisticsWrapper {
     /// Numerical value that represent's how good the learning is.
     /// the closer to the 0 the better the learning
     fn get_learning_score_for_game(&mut self, n: usize) -> f64 {
+        if self.for_game_df[n].is_none() {
+            self.save_per_game_df();
+            return self.get_learning_score_for_game(n);
+        }
+
         let data = self.for_game_df[n]
             .as_ref()
             .unwrap()
             .column("diff_actual_learned")
             .expect("Column not found");
-        // let sum: f64 = data.abs().unwrap().sum().unwrap();
-        let sum = data.sum().unwrap();  // Change to absolute sum 
-        sum
+        let abs_series: Vec<f64> = data
+            .f64()
+            .unwrap()
+            .into_iter()
+            .map(|n| n.unwrap_or(0.0).abs())
+            .collect();
+        abs_series.into_iter().sum()
     }
 
     fn display_statistics(&mut self) {
@@ -214,5 +227,179 @@ impl BernoulliAgentStatisticsWrapper {
         );
         println!("Epsilon: {} \t Alpha: {}", EPSILON, ALPHA);
         println!("{:?}", self.df.as_ref().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use approx::assert_relative_eq;
+
+    use super::*;
+
+    #[test]
+    fn test_creation_of_new_agent_game_statistics_wrapper() {
+        let stats = BernoulliAgentStatisticsWrapper::new();
+
+        assert_eq!(stats.game_runner.num_of_games, NUM_OF_GAMES_TO_PLAY);
+        assert_eq!(stats.game_runner.games.len(), NUM_OF_GAMES_TO_PLAY);
+        assert_eq!(stats.for_game_df, vec![None; NUM_OF_GAMES_TO_PLAY]);
+        assert_eq!(stats.df, None);
+    }
+
+    #[test]
+    fn test_creation_of_statistics_wrapper_from_parallel_game_runner() {
+        let runner = BernoulliParallelGameRunner::new();
+        let stats = BernoulliAgentStatisticsWrapper::from(runner);
+
+        assert_eq!(stats.game_runner.num_of_games, NUM_OF_GAMES_TO_PLAY);
+        assert_eq!(stats.game_runner.games.len(), NUM_OF_GAMES_TO_PLAY);
+        assert_eq!(stats.for_game_df, vec![None; NUM_OF_GAMES_TO_PLAY]);
+        assert_eq!(stats.df, None);
+    }
+
+    #[test]
+    fn test_mean_calculation_for_game_when_results_recorded() {
+        let game_number: usize = 0;
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+        stats.game_runner.games[game_number].run_one_game();
+
+        let mean_reward = stats.get_mean_reward_per_game(game_number);
+
+        assert!(stats.game_runner.games[game_number].resulting_rewards.is_some());
+        assert!((0.0..1.0).contains(&mean_reward));
+        assert_relative_eq!(mean_reward, 0.5, epsilon = 0.49);
+    }
+
+    #[test]
+    fn test_mean_calculation_for_game_when_no_rewards_recorded() {
+        let n = 0;
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+
+        assert!(stats.game_runner.games[n].resulting_rewards.is_none());
+
+        let result = stats.get_mean_reward_per_game(n);
+
+        assert!(stats.game_runner.games[n].resulting_rewards.is_some());
+        assert!((0.0..1.0).contains(&result));
+        assert_relative_eq!(result, 0.5, epsilon = 0.49);
+    }
+
+    #[test]
+    fn test_total_rewards_per_game_when_no_rewards_recorded() {
+        let n = 0;
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+        let max_value = stats.game_runner.games[0].num_of_turns as f64;
+        assert!(stats.game_runner.games[n].resulting_rewards.is_none());
+
+        let result = stats.get_total_reward_per_game(n);
+        println!("{}", result);
+        assert!(stats.game_runner.games[n].resulting_rewards.is_some());
+        assert!((0.0..max_value).contains(&result));
+    }
+
+    #[test]
+    fn test_total_rewards_per_game_when_rewards_are_recorded() {
+        let n = 0;
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+        let max_value = stats.game_runner.games[0].num_of_turns as f64;
+        stats.game_runner.run_all_games_in_parallel();
+
+        let result = stats.get_total_reward_per_game(n);
+
+        assert!(stats.game_runner.games[n].resulting_rewards.is_some());
+        assert!((0.0..max_value).contains(&result));
+    }
+
+    #[test]
+    fn test_populate_df_for_game_when_actions_and_rewards_not_recorded() {
+        let n = 0;
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+        assert_eq!(stats.for_game_df, vec![None; stats.game_runner.num_of_games]);
+        assert!(stats.game_runner.games[n].resulting_actions.is_none());
+        assert!(stats.game_runner.games[n].resulting_rewards.is_none());
+
+        stats.populate_dataframe_for_game(n);
+
+        assert!(stats.for_game_df[n].is_some());
+        assert_eq!(
+            stats.for_game_df[n].as_ref().unwrap().shape().0,
+            stats.game_runner.games[n].num_of_bandits
+        );
+    }
+
+    #[test]
+    fn test_populate_df_for_game_when_actions_and_rewards_are_recorded() {
+        let n = 0;
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+        stats.game_runner.games[n].run_one_game();
+
+        assert!(stats.game_runner.games[n].resulting_actions.is_some());
+        assert!(stats.game_runner.games[n].resulting_rewards.is_some());
+
+        stats.populate_dataframe_for_game(n);
+
+        assert!(stats.for_game_df[n].is_some());
+        assert_eq!(
+            stats.for_game_df[n].as_ref().unwrap().shape().0,
+            stats.game_runner.games[n].num_of_bandits
+        );
+    }
+
+    #[test]
+    fn test_saving_dataframe_for_each_game_separately() {
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+
+        stats.save_per_game_df();
+
+        for n in 0..stats.game_runner.num_of_games {
+            assert!(stats.for_game_df[n].is_some());
+        }
+    }
+
+    #[test]
+    fn test_get_learning_score_per_game_when_per_game_df_present() {
+        let n = 0;
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+        stats.save_per_game_df();
+
+        assert!(stats.for_game_df[n].is_some());
+
+        let result = stats.get_learning_score_for_game(n);
+
+        assert!(result >= 0.0);
+    }
+
+    #[test]
+    fn test_get_learning_score_per_game_when_per_game_df_not_populated() {
+        let n = 0;
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+
+        assert!(stats.for_game_df[n].is_none());
+
+        let result = stats.get_learning_score_for_game(n);
+
+        assert!(stats.for_game_df[n].is_some());
+        assert!(result > 0.0);
+    }
+
+    #[test]
+    fn test_save_df_summary_for_all_games() {
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+
+        stats.save_summary_df_for_all_games();
+
+        assert!(stats.df.is_some());
+        assert_eq!(stats.df.unwrap().shape().0, stats.game_runner.num_of_games);
+    }
+
+    #[test]
+    fn test_get_actual_probabilities() {
+        let n = 0;
+        let stats = BernoulliAgentStatisticsWrapper::new();
+
+        let probabilities = stats._get_actual_probabilities_per_game(n);
+
+        assert_eq!(probabilities.is_empty(), false);
+        assert_eq!(probabilities.len(), stats.game_runner.games[n].num_of_bandits);
     }
 }

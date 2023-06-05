@@ -11,6 +11,7 @@ rand = "0.8.5"
 # Tarpaulin downgrades the package from 1.9.2 to 1.8.2 and makes the polars package not to compile.
 polars = { version = "0.28.0", features = ["lazy"] }
 rayon = "1.7"
+approx = "0.5.1"
 
 [build]
 profiler = true
