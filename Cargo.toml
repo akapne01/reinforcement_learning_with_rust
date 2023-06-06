@@ -12,6 +12,4 @@ rand = "0.8.5"
 polars = { version = "0.28.0", features = ["lazy"] }
 rayon = "1.7"
 approx = "0.5.1"
-
-[build]
-profiler = true
+chrono = "0.4.26"

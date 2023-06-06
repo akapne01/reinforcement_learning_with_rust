@@ -1,8 +1,13 @@
+use std::{ path::Path, fs::{ self, File } };
+
 use polars::prelude::*;
+use chrono::prelude::*;
+use std::io::prelude::*;
+use std::cmp;
 
 use crate::{
     bernoulli_multi_armed_bandits_game::BernoulliParallelGameRunner,
-    constants::{ NUM_OF_GAMES_TO_PLAY, NUM_OF_TURNS_IN_A_GAME, EPSILON, ALPHA },
+    constants::{ NUM_OF_GAMES_TO_PLAY, NUM_OF_TURNS_IN_A_GAME, EPSILON, ALPHA, NUM_OF_BANDITS },
 };
 
 pub struct BernoulliAgentStatisticsWrapper {
@@ -32,13 +37,10 @@ impl BernoulliAgentStatisticsWrapper {
     }
 
     pub fn run(&mut self) {
-        std::env::set_var("POLARS_FMT_MAX_COLS", "12");
-        std::env::set_var("POLARS_FMT_MAX_ROWS", "12");
-
         self.game_runner.run_all_games_in_parallel();
         self.save_per_game_df();
         self.save_summary_df_for_all_games();
-        self.display_statistics();
+        self.write_statistics();
     }
 
     /// Populates dataframe for each game separately
@@ -204,29 +206,91 @@ impl BernoulliAgentStatisticsWrapper {
         abs_series.into_iter().sum()
     }
 
-    fn display_statistics(&mut self) {
-        println!("\n### Statistics for each dataframe separately. ###");
+    fn write_statistics(&mut self) {
+        // Set environment variables so that the whole dataframe is printed when written to the file.
+        let max_rows = cmp::max(NUM_OF_GAMES_TO_PLAY, NUM_OF_BANDITS);
+        std::env::set_var("POLARS_FMT_MAX_COLS", "12");
+        std::env::set_var("POLARS_FMT_MAX_ROWS", max_rows.to_string());
 
-        for game_number in 0..self.game_runner.num_of_games {
-            match self.for_game_df[game_number].clone() {
-                Some(df) => {
-                    println!("### Results Dataframe for trial : {} ###", game_number);
-                    println!("{:?} \n", df);
-                }
-                None => {
-                    println!("Dataframe for game: {} is not present.", game_number);
+        let base_directory = "files";
+        let sub_directory = "bernoulli_multi_armed_bandits";
+        let local: DateTime<Local> = Local::now();
+        let datetime_str: &str = &local.format("%Y-%m-%d_%H:%M:%S").to_string();
+        // let file_name = "run_result.txt";
+        let file_name = format!("run_result_{}.txt", datetime_str);
+
+        let base_directory_path = Path::new(base_directory);
+        if !base_directory_path.is_dir() {
+            // Create the base directory
+            match fs::create_dir(base_directory_path) {
+                Ok(_) => println!("Base directory '{}' created successfully", base_directory),
+                Err(err) => {
+                    eprintln!("Failed to create base directory: {}", err);
+                    return;
                 }
             }
         }
 
-        println!("### Statistics for all the games ###");
-        println!(
+        // Check if the sub directory exists
+        let sub_directory_path = base_directory_path.join(sub_directory);
+        if sub_directory_path.is_dir() {
+            println!("Sub directory '{}' already exists", sub_directory);
+        } else {
+            // Create the sub directory
+            match fs::create_dir(&sub_directory_path) {
+                Ok(_) => println!("Sub directory '{}' created successfully", sub_directory),
+                Err(err) => eprintln!("Failed to create sub directory: {}", err),
+            }
+        }
+
+        // Create the file path
+        let file_path = sub_directory_path.join(file_name);
+        let mut output = File::create(file_path).unwrap();
+
+        // Check if required data exists, if it does not, then populate it
+        if self.df.is_none() {
+            self.save_summary_df_for_all_games();
+            return self.write_statistics();
+        }
+        for n in 0..self.game_runner.num_of_games {
+            if self.for_game_df[n].is_none() {
+                self.save_per_game_df();
+                return self.write_statistics();
+            }
+        }
+
+        // Writing to the file
+        writeln!(output, "\n### Statistics for each dataframe separately. ###").unwrap();
+
+        for game_number in 0..self.game_runner.num_of_games {
+            match self.for_game_df[game_number].clone() {
+                Some(df) => {
+                    writeln!(
+                        output,
+                        "### Results Dataframe for trial : {} ###",
+                        game_number
+                    ).unwrap();
+                    writeln!(output, "{:?} \n", df).unwrap();
+                }
+                None => {
+                    writeln!(
+                        output,
+                        "Dataframe for game: {} is not present.",
+                        game_number
+                    ).unwrap();
+                }
+            }
+        }
+
+        writeln!(output, "### Statistics for all the games ###").unwrap();
+        writeln!(
+            output,
             "Run {} games, with {} turns in each",
             NUM_OF_GAMES_TO_PLAY,
             NUM_OF_TURNS_IN_A_GAME
-        );
-        println!("Epsilon: {} \t Alpha: {}", EPSILON, ALPHA);
-        println!("{:?}", self.df.as_ref().unwrap());
+        ).unwrap();
+        writeln!(output, "Epsilon: {} \t Alpha: {}", EPSILON, ALPHA).unwrap();
+        writeln!(output, "{:?}", self.df.as_ref().unwrap()).unwrap();
     }
 }
 
@@ -401,5 +465,28 @@ mod test {
 
         assert_eq!(probabilities.is_empty(), false);
         assert_eq!(probabilities.len(), stats.game_runner.games[n].num_of_bandits);
+    }
+
+    #[test]
+    fn test_run_method() {
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+
+        stats.run();
+
+        // Test that all games where run, and we have a vector of all actions taken and rewards recieved
+        for n in 0..stats.game_runner.num_of_games {
+            assert!(stats.game_runner.games[n].resulting_actions.is_some());
+            assert!(stats.game_runner.games[n].resulting_rewards.is_some());
+        }
+
+        // Datafarame is populated for each game separately
+        for df in stats.for_game_df {
+            assert!(df.is_some());
+            assert_eq!(df.unwrap().shape().0, stats.game_runner.num_of_games);
+        }
+
+        // Dataframe is populated that summarizes all the games
+        assert!(stats.df.is_some());
+        assert_eq!(stats.df.unwrap().shape().0, stats.game_runner.num_of_games);
     }
 }
