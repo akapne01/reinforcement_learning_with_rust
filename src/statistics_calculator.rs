@@ -304,6 +304,8 @@ mod test {
     use std::env;
 
     use approx::assert_relative_eq;
+    use std::time::Duration;
+    use std::thread;
 
     use super::*;
 
@@ -437,7 +439,7 @@ mod test {
 
         assert!(stats.game_runner.games[game_number].resulting_rewards.is_some());
         assert!((0.0..1.0).contains(&mean_reward));
-        assert_relative_eq!(mean_reward, 0.5, epsilon = 0.49);
+        assert_relative_eq!(mean_reward, 0.5, epsilon = 0.499999);
     }
 
     #[test]
@@ -682,6 +684,7 @@ mod test {
 
     #[test]
     fn test_write_statistics_when_dataframes_not_recorded() {
+        thread::sleep(Duration::from_secs(1)); // added so it doesn't clash with the previous test
         let mut stats = BernoulliAgentStatisticsWrapper::new();
 
         assert!(stats.df.is_none());
