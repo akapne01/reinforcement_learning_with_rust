@@ -2,6 +2,7 @@
 pub const IS_VERBOSE_MODE: bool = false;
 /// If true, prints out the action taken and reward receieved for each turn in the game.
 pub const PRINT_EACH_STEP: bool = false;
+pub const POLARS_MAX_COLS: &str = "12";
 /// Represent number of independent games to play.
 pub const NUM_OF_GAMES_TO_PLAY: usize = 10;
 /// Represents the number of slot machines being played in k-armed bandit problem, it is the number k.

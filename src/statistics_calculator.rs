@@ -1,4 +1,4 @@
-use std::{ path::Path, fs::{ self, File } };
+use std::{ path::{ Path, PathBuf }, fs::{ self, File } };
 
 use polars::prelude::*;
 use chrono::prelude::*;
@@ -7,24 +7,61 @@ use std::cmp;
 
 use crate::{
     bernoulli_multi_armed_bandits_game::BernoulliParallelGameRunner,
-    constants::{ NUM_OF_GAMES_TO_PLAY, NUM_OF_TURNS_IN_A_GAME, EPSILON, ALPHA, NUM_OF_BANDITS },
+    constants::{
+        NUM_OF_GAMES_TO_PLAY,
+        NUM_OF_TURNS_IN_A_GAME,
+        EPSILON,
+        ALPHA,
+        NUM_OF_BANDITS,
+        POLARS_MAX_COLS,
+    },
 };
 
-pub struct BernoulliAgentStatisticsWrapper {
+/// Set environment variabls so that the whole dataframe is printed
+fn set_polars_environment_variables() {
+    let max_rows = cmp::max(NUM_OF_GAMES_TO_PLAY, NUM_OF_BANDITS);
+    std::env::set_var("POLARS_FMT_MAX_COLS", POLARS_MAX_COLS);
+    std::env::set_var("POLARS_FMT_MAX_ROWS", max_rows.to_string());
+}
+
+/// Creates directory if it doesn't exist
+fn create_directory(directory: &str) {
+    let base_directory_path = Path::new(directory);
+    if !base_directory_path.is_dir() {
+        match fs::create_dir(base_directory_path) {
+            Ok(_) => println!("Base directory '{}' created successfully", directory),
+            Err(err) => {
+                eprintln!("Failed to create base directory: {}", err);
+                return;
+            }
+        }
+    } else {
+        println!("Directory '{}' already exists", directory);
+    }
+}
+
+fn get_timestamped_file_path(directory: &str, file_name: &str) -> PathBuf {
+    let local: DateTime<Local> = Local::now();
+    let datetime_str: &str = &local.format("%Y-%m-%d_%H:%M:%S").to_string();
+    let file_name = format!("{}_{}.txt", file_name, datetime_str);
+    PathBuf::from(directory).join(file_name)
+}
+
+pub struct BernoulliAgentStatisticsWrapper<'a> {
     game_runner: BernoulliParallelGameRunner,
     for_game_df: Vec<Option<DataFrame>>,
     df: Option<DataFrame>,
+    base_directory: &'a str,
+    sub_directory: &'a str,
+    file_path: Option<PathBuf>,
 }
 
-impl BernoulliAgentStatisticsWrapper {
+impl<'a> BernoulliAgentStatisticsWrapper<'a> {
+    const BASE_DIRECTORY: &str = "files";
+    const SUB_DIRECTORY: &str = "files/bernoulli_multi_armed_bandits";
     pub fn new() -> Self {
         let game_runner = BernoulliParallelGameRunner::new();
-        let n: usize = game_runner.num_of_games;
-        BernoulliAgentStatisticsWrapper {
-            game_runner,
-            for_game_df: vec![None; n],
-            df: None,
-        }
+        Self::from(game_runner)
     }
 
     pub fn from(runner: BernoulliParallelGameRunner) -> Self {
@@ -33,6 +70,9 @@ impl BernoulliAgentStatisticsWrapper {
             game_runner: runner,
             for_game_df: vec![None; n],
             df: None,
+            base_directory: Self::BASE_DIRECTORY,
+            sub_directory: Self::SUB_DIRECTORY,
+            file_path: None,
         }
     }
 
@@ -206,99 +246,159 @@ impl BernoulliAgentStatisticsWrapper {
         abs_series.into_iter().sum()
     }
 
+    fn get_data_to_write_in_file(&mut self) -> Vec<String> {
+        if self.df.is_none() {
+            self.save_summary_df_for_all_games();
+            return self.get_data_to_write_in_file();
+        }
+
+        let mut lines: Vec<String> = Vec::new();
+
+        lines.push("\n### Statistics for each dataframe separately. ###".to_string());
+
+        for (game_number, game_df) in self.for_game_df.iter().enumerate() {
+            if let Some(df) = game_df {
+                lines.push(format!("### Results Dataframe for trial : {} ###", game_number));
+                lines.push(format!("{:?}\n", df));
+            }
+        }
+
+        lines.push("### Statistics for all the games ###".to_string());
+        lines.push(
+            format!(
+                "Run {} games, with {} turns in each",
+                NUM_OF_GAMES_TO_PLAY,
+                NUM_OF_TURNS_IN_A_GAME
+            )
+        );
+        lines.push(format!("Epsilon: {} \t Alpha: {}", EPSILON, ALPHA));
+        lines.push(format!("{:?}", self.df.as_ref().unwrap()));
+        lines
+    }
+
     fn write_statistics(&mut self) {
-        // Set environment variables so that the whole dataframe is printed when written to the file.
-        let max_rows = cmp::max(NUM_OF_GAMES_TO_PLAY, NUM_OF_BANDITS);
-        std::env::set_var("POLARS_FMT_MAX_COLS", "12");
-        std::env::set_var("POLARS_FMT_MAX_ROWS", max_rows.to_string());
-
-        let base_directory = "files";
-        let sub_directory = "bernoulli_multi_armed_bandits";
-        let local: DateTime<Local> = Local::now();
-        let datetime_str: &str = &local.format("%Y-%m-%d_%H:%M:%S").to_string();
-        // let file_name = "run_result.txt";
-        let file_name = format!("run_result_{}.txt", datetime_str);
-
-        let base_directory_path = Path::new(base_directory);
-        if !base_directory_path.is_dir() {
-            // Create the base directory
-            match fs::create_dir(base_directory_path) {
-                Ok(_) => println!("Base directory '{}' created successfully", base_directory),
-                Err(err) => {
-                    eprintln!("Failed to create base directory: {}", err);
-                    return;
-                }
-            }
-        }
-
-        // Check if the sub directory exists
-        let sub_directory_path = base_directory_path.join(sub_directory);
-        if sub_directory_path.is_dir() {
-            println!("Sub directory '{}' already exists", sub_directory);
-        } else {
-            // Create the sub directory
-            match fs::create_dir(&sub_directory_path) {
-                Ok(_) => println!("Sub directory '{}' created successfully", sub_directory),
-                Err(err) => eprintln!("Failed to create sub directory: {}", err),
-            }
-        }
-
-        // Create the file path
-        let file_path = sub_directory_path.join(file_name);
-        let mut output = File::create(file_path).unwrap();
-
-        // Check if required data exists, if it does not, then populate it
         if self.df.is_none() {
             self.save_summary_df_for_all_games();
             return self.write_statistics();
         }
-        for n in 0..self.game_runner.num_of_games {
-            if self.for_game_df[n].is_none() {
-                self.save_per_game_df();
-                return self.write_statistics();
-            }
+
+        set_polars_environment_variables();
+        create_directory(self.base_directory);
+        create_directory(self.sub_directory);
+
+        self.file_path = Some(get_timestamped_file_path(self.sub_directory, "run_result"));
+        let mut output = File::create(&self.file_path.as_ref().unwrap()).unwrap();
+
+        let lines = self.get_data_to_write_in_file();
+
+        for line in lines {
+            writeln!(output, "{}", line).unwrap();
         }
 
-        // Writing to the file
-        writeln!(output, "\n### Statistics for each dataframe separately. ###").unwrap();
-
-        for game_number in 0..self.game_runner.num_of_games {
-            match self.for_game_df[game_number].clone() {
-                Some(df) => {
-                    writeln!(
-                        output,
-                        "### Results Dataframe for trial : {} ###",
-                        game_number
-                    ).unwrap();
-                    writeln!(output, "{:?} \n", df).unwrap();
-                }
-                None => {
-                    writeln!(
-                        output,
-                        "Dataframe for game: {} is not present.",
-                        game_number
-                    ).unwrap();
-                }
-            }
-        }
-
-        writeln!(output, "### Statistics for all the games ###").unwrap();
-        writeln!(
-            output,
-            "Run {} games, with {} turns in each",
-            NUM_OF_GAMES_TO_PLAY,
-            NUM_OF_TURNS_IN_A_GAME
-        ).unwrap();
-        writeln!(output, "Epsilon: {} \t Alpha: {}", EPSILON, ALPHA).unwrap();
-        writeln!(output, "{:?}", self.df.as_ref().unwrap()).unwrap();
+        println!("Statistics for all games saved in file: {:?}", &self.file_path.as_ref().unwrap());
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::env;
+
     use approx::assert_relative_eq;
 
     use super::*;
+
+    #[test]
+    fn test_set_polars_environment_variables() {
+        // Call the function being tested
+        set_polars_environment_variables();
+
+        // Check if the environment variables are set correctly
+        assert_eq!(
+            env::var("POLARS_FMT_MAX_COLS").unwrap(),
+            POLARS_MAX_COLS,
+            "POLARS_FMT_MAX_COLS should be set to const value: POLARS_MAX_COLS"
+        );
+
+        let expected_max_rows = cmp::max(NUM_OF_GAMES_TO_PLAY, NUM_OF_BANDITS).to_string();
+        assert_eq!(
+            env::var("POLARS_FMT_MAX_ROWS").unwrap(),
+            expected_max_rows,
+            "POLARS_FMT_MAX_ROWS should be set to the maximum number of games or bandits"
+        );
+    }
+    #[test]
+    fn test_create_directory_new_directory() {
+        let directory = "test_directory";
+
+        // Clean up directory if it already exists
+        if let Ok(_) = fs::remove_dir(directory) {
+        }
+
+        // Call the function being tested
+        create_directory(directory);
+
+        // Check if the directory is created
+        assert!(Path::new(directory).is_dir(), "Directory should be created");
+
+        // Clean up directory
+        if let Ok(_) = fs::remove_dir(directory) {
+        }
+    }
+
+    #[test]
+    fn test_create_directory_existing_directory() {
+        let directory = "test_directory";
+
+        // Create the directory
+        fs::create_dir(directory).unwrap();
+
+        // Call the function being tested
+        create_directory(directory);
+
+        // Check if the directory still exists
+        assert!(Path::new(directory).is_dir(), "Directory should still exist");
+
+        // Clean up directory
+        if let Ok(_) = fs::remove_dir(directory) {
+        }
+    }
+
+    #[test]
+    fn test_create_directory_failed_creation() {
+        // Fails with: Failed to create base directory: Permission denied (os error 13)
+        let directory = "/nonexistent_directory";
+
+        // Call the function being tested
+        create_directory(directory);
+
+        // Check if the directory doesn't exist
+        assert!(!Path::new(directory).is_dir(), "Directory should not be created");
+    }
+
+    #[test]
+    fn test_get_timestamped_file_path() {
+        let directory = "test_directory";
+        let file_name = "test_file";
+
+        let path = get_timestamped_file_path(directory, file_name);
+
+        // Check if the directory path is correct
+        assert_eq!(path.parent(), Some(Path::new(directory)));
+
+        // Check if the file name is formatted correctly
+        assert!(
+            path
+                .file_name()
+                .map(|name|
+                    name
+                        .to_string_lossy()
+                        .starts_with(
+                            &format!("{}_{}", file_name, Local::now().format("%Y-%m-%d_%H:%M:%S"))
+                        )
+                )
+                .unwrap_or(false)
+        );
+    }
 
     #[test]
     fn test_creation_of_new_agent_game_statistics_wrapper() {
@@ -308,6 +408,9 @@ mod test {
         assert_eq!(stats.game_runner.games.len(), NUM_OF_GAMES_TO_PLAY);
         assert_eq!(stats.for_game_df, vec![None; NUM_OF_GAMES_TO_PLAY]);
         assert_eq!(stats.df, None);
+        assert_eq!(stats.base_directory, BernoulliAgentStatisticsWrapper::BASE_DIRECTORY);
+        assert_eq!(stats.sub_directory, BernoulliAgentStatisticsWrapper::SUB_DIRECTORY);
+        assert_eq!(stats.file_path, None);
     }
 
     #[test]
@@ -319,6 +422,9 @@ mod test {
         assert_eq!(stats.game_runner.games.len(), NUM_OF_GAMES_TO_PLAY);
         assert_eq!(stats.for_game_df, vec![None; NUM_OF_GAMES_TO_PLAY]);
         assert_eq!(stats.df, None);
+        assert_eq!(stats.base_directory, BernoulliAgentStatisticsWrapper::BASE_DIRECTORY);
+        assert_eq!(stats.sub_directory, BernoulliAgentStatisticsWrapper::SUB_DIRECTORY);
+        assert_eq!(stats.file_path, None);
     }
 
     #[test]
@@ -488,5 +594,105 @@ mod test {
         // Dataframe is populated that summarizes all the games
         assert!(stats.df.is_some());
         assert_eq!(stats.df.unwrap().shape().0, stats.game_runner.num_of_games);
+    }
+
+    #[test]
+    fn test_get_data_to_write_in_file_when_dataframes_recorded() {
+        set_polars_environment_variables();
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+        stats.save_summary_df_for_all_games();
+        stats.save_per_game_df();
+
+        let mut expected_lines: Vec<String> = Vec::new();
+
+        expected_lines.push("\n### Statistics for each dataframe separately. ###".to_string());
+
+        for (n, df) in stats.for_game_df.iter().enumerate() {
+            expected_lines.push(format!("### Results Dataframe for trial : {} ###", n));
+            expected_lines.push(format!("{:?}\n", df.as_ref().unwrap()));
+        }
+        expected_lines.push("### Statistics for all the games ###".to_string());
+        expected_lines.push(
+            format!(
+                "Run {} games, with {} turns in each",
+                NUM_OF_GAMES_TO_PLAY,
+                NUM_OF_TURNS_IN_A_GAME
+            )
+        );
+        expected_lines.push(format!("Epsilon: {} \t Alpha: {}", EPSILON, ALPHA));
+        expected_lines.push(format!("{:?}", stats.df.as_ref().unwrap()));
+
+        let result = stats.get_data_to_write_in_file();
+
+        assert_eq!(result, expected_lines);
+    }
+
+    #[test]
+    fn test_get_data_to_write_in_file_when_dataframes_not_recorded_it_is_populated_automatically() {
+        set_polars_environment_variables();
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+
+        assert!(stats.df.is_none());
+        assert!(stats.for_game_df.iter().any(Option::is_none));
+
+        let result = stats.get_data_to_write_in_file();
+
+        assert!(stats.df.is_some());
+        assert!(stats.for_game_df.iter().all(Option::is_some));
+
+        let mut expected_lines: Vec<String> = Vec::new();
+
+        expected_lines.push("\n### Statistics for each dataframe separately. ###".to_string());
+
+        for (n, df) in stats.for_game_df.iter().enumerate() {
+            expected_lines.push(format!("### Results Dataframe for trial : {} ###", n));
+            expected_lines.push(format!("{:?}\n", df.as_ref().unwrap()));
+        }
+        expected_lines.push("### Statistics for all the games ###".to_string());
+        expected_lines.push(
+            format!(
+                "Run {} games, with {} turns in each",
+                NUM_OF_GAMES_TO_PLAY,
+                NUM_OF_TURNS_IN_A_GAME
+            )
+        );
+        expected_lines.push(format!("Epsilon: {} \t Alpha: {}", EPSILON, ALPHA));
+        expected_lines.push(format!("{:?}", stats.df.as_ref().unwrap()));
+
+        assert_eq!(result, expected_lines);
+    }
+
+    #[test]
+    fn test_write_statistics_when_dfs_present() {
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+        stats.save_per_game_df();
+        stats.save_summary_df_for_all_games();
+
+        assert!(stats.df.is_some());
+        assert!(stats.for_game_df.iter().any(Option::is_some));
+
+        stats.write_statistics();
+
+        assert!(stats.file_path.is_some());
+        assert!(&stats.file_path.as_ref().unwrap().exists());
+
+        // Clean up the file
+        fs::remove_file(&stats.file_path.unwrap()).unwrap();
+    }
+
+    #[test]
+    fn test_write_statistics_when_dataframes_not_recorded() {
+        let mut stats = BernoulliAgentStatisticsWrapper::new();
+
+        assert!(stats.df.is_none());
+        assert!(stats.for_game_df.iter().any(Option::is_none));
+
+        stats.write_statistics();
+
+        assert!(stats.file_path.is_some());
+        assert!(&stats.file_path.as_ref().unwrap().exists());
+
+        // Clean up the file
+        fs::remove_file(&stats.file_path.unwrap()).unwrap();
     }
 }
